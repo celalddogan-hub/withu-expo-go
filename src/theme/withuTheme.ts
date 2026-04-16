@@ -1,0 +1,115 @@
+export const withuColors = {
+  navy: '#1B2B4B',
+  navy2: '#2D4A7A',
+  coral: '#E05C4B',
+  cream: '#FAFAF8',
+  white: '#FFFFFF',
+  text: '#1B2B4B',
+  muted: '#8B8FA8',
+  soft: '#F2F2F0',
+  line: '#E7E7E3',
+  success: '#4CAF8C',
+  successBg: 'rgba(76,175,140,0.10)',
+  coralBg: 'rgba(224,92,75,0.10)',
+  navyBg: 'rgba(27,43,75,0.10)',
+  overlay: 'rgba(0,0,0,0.6)',
+};
+
+export const withuRadius = {
+  xs: 10,
+  sm: 14,
+  md: 18,
+  lg: 22,
+  xl: 26,
+  pill: 999,
+};
+
+export const withuSpacing = {
+  xs: 6,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 20,
+  xxl: 28,
+  xxxl: 36,
+};
+
+export const withuText = {
+  hero: {
+    fontSize: 32,
+    fontWeight: '900' as const,
+    letterSpacing: -1,
+    color: withuColors.white,
+  },
+  h1: {
+    fontSize: 24,
+    fontWeight: '900' as const,
+    color: withuColors.navy,
+  },
+  h2: {
+    fontSize: 20,
+    fontWeight: '900' as const,
+    color: withuColors.navy,
+  },
+  h3: {
+    fontSize: 17,
+    fontWeight: '800' as const,
+    color: withuColors.navy,
+  },
+  body: {
+    fontSize: 14,
+    lineHeight: 22,
+    color: '#555555',
+  },
+  muted: {
+    fontSize: 12,
+    color: withuColors.muted,
+  },
+  button: {
+    fontSize: 15,
+    fontWeight: '800' as const,
+  },
+  smallCaps: {
+    fontSize: 11,
+    fontWeight: '700' as const,
+    color: withuColors.muted,
+    letterSpacing: 1,
+    textTransform: 'uppercase' as const,
+  },
+};
+
+export const withuShadows = {
+  card: {
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
+  },
+  strong: {
+    shadowColor: '#000',
+    shadowOpacity: 0.14,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 5,
+  },
+};
+
+export const withuActivities = [
+  '☕ Fika',
+  '🚶 Promenad',
+  '🎮 Spela',
+  '💬 Prata',
+  '💪 Träna',
+  '🎵 Musik',
+  '📚 Studera',
+  '🌿 Natur',
+];
+
+export const withuAgeGroups = [
+  { label: '15–17 år', tag: 'Ungdom' },
+  { label: '18–25 år', tag: 'Unga vuxna' },
+  { label: '26–40 år', tag: 'Vuxna' },
+  { label: '41–60 år', tag: 'Mitt i livet' },
+  { label: '61–90+ år', tag: 'Seniorer' },
+];
