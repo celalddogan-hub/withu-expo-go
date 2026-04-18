@@ -28,7 +28,7 @@ export default function TabsLayout() {
         options={{
           title: 'Hitta',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="search-outline" size={size} color={color} />
+            <Ionicons name="search" size={size} color={color} />
           ),
         }}
       />
@@ -38,7 +38,7 @@ export default function TabsLayout() {
         options={{
           title: 'Nu',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="flash-outline" size={size} color={color} />
+            <Ionicons name="flash" size={size} color={color} />
           ),
         }}
       />
@@ -58,7 +58,7 @@ export default function TabsLayout() {
         options={{
           title: 'Chatt',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="chatbubble-outline" size={size} color={color} />
+            <Ionicons name="chatbubble-ellipses-outline" size={size} color={color} />
           ),
         }}
       />
@@ -68,7 +68,7 @@ export default function TabsLayout() {
         options={{
           title: 'Tankar',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="chatbox-ellipses-outline" size={size} color={color} />
+            <Ionicons name="ellipsis-horizontal-circle-outline" size={size} color={color} />
           ),
         }}
       />

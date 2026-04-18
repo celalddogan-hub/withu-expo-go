@@ -48,7 +48,13 @@
           "enableBackgroundPlayback": false
         }
       ],
-      "expo-notifications"
+      "expo-notifications",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "WithU behöver tillgång till dina bilder så att du kan lägga till en profilbild."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

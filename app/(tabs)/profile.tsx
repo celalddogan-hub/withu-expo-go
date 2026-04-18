@@ -1,17 +1,82 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
-  Pressable,
+  ActivityIndicator,
+  Image,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { ACTIVITY_CATEGORIES } from '../../constants/activities';
-import { useAppStore } from '../../src/store/useAppStore';
 import { supabase } from '../../src/lib/supabase';
+
+type Category = {
+  title: string;
+  emoji: string;
+  items: string[];
+};
+
+const ACTIVITY_CATEGORIES: Category[] = [
+  {
+    title: 'Fika & Samtal',
+    emoji: '☕️',
+    items: ['Kafébesök', 'Lunch', 'Promenad', 'Bara prata'],
+  },
+  {
+    title: 'Gaming & Fritid',
+    emoji: '🎮',
+    items: ['Datorspel', 'Brädspel', 'Rollspel', 'Escape room'],
+  },
+  {
+    title: 'Studier & Tandem',
+    emoji: '📚',
+    items: ['Läxhjälp', 'Språkbyte', 'Studiecirkel', 'Pluggsällskap'],
+  },
+  {
+    title: 'Träning & Sport',
+    emoji: '💪',
+    items: ['Löpning', 'Gym', 'Yoga', 'Padel', 'Cykling', 'Simning'],
+  },
+  {
+    title: 'Musik & Kultur',
+    emoji: '🎸',
+    items: ['Konserter', 'Replokal', 'Teater'],
+  },
+  {
+    title: 'Kreativitet',
+    emoji: '🎨',
+    items: ['Foto', 'Konst', 'Skrivande', 'Design', 'Hantverk'],
+  },
+  {
+    title: 'Familj & Föräldrar',
+    emoji: '👨‍👩‍👧‍👦',
+    items: ['Lekpark', 'Föräldraträff', 'Barnaktiviteter'],
+  },
+  {
+    title: 'Språk & Kultur',
+    emoji: '🌍',
+    items: ['Kulturutbyte', 'Integration', 'Språkcafé'],
+  },
+  {
+    title: 'Senior & Hembesök',
+    emoji: '🧓',
+    items: ['Sällskap hemma', 'Promenad', 'Berättarstund'],
+  },
+  {
+    title: 'Bara Prata',
+    emoji: '💬',
+    items: ['Telefonsamtal', 'Videosamtal', 'Anonymt stöd'],
+  },
+];
+
+const MAX_ACTIVITIES = 15;
+const DEFAULT_MIN_AGE = '18';
+const DEFAULT_MAX_AGE = '99';
 
 type ProfileRow = {
   id: string;
@@ -19,917 +84,1006 @@ type ProfileRow = {
   city: string | null;
   age: number | null;
   bio: string | null;
+  avatar_url: string | null;
+  min_age: number | null;
+  max_age: number | null;
   activities: string[] | null;
-  avatar_emoji: string | null;
-  is_bankid_verified: boolean | null;
-  preferred_age_min: number | null;
-  preferred_age_max: number | null;
 };
-
-function getProfileEmoji(activity?: string) {
-  const value = (activity || '').toLowerCase();
-
-  if (value.includes('kafé') || value.includes('fika') || value.includes('lunch')) return '☕';
-  if (value.includes('promenad') || value.includes('löpning') || value.includes('cykling')) return '🚶';
-  if (value.includes('stud') || value.includes('språk') || value.includes('plugg')) return '📚';
-  if (value.includes('träning') || value.includes('gym') || value.includes('yoga')) return '💪';
-  if (value.includes('spel') || value.includes('rollspel')) return '🎲';
-  if (value.includes('film') || value.includes('konsert')) return '🎬';
-
-  return '🙂';
-}
 
 export default function ProfileScreen() {
   const router = useRouter();
 
-  const profileName = useAppStore((s) => s.profileName);
-  const profileCity = useAppStore((s) => s.profileCity);
-  const selectedActivities = useAppStore((s) => s.selectedActivities);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
 
-  const setProfileName = useAppStore((s) => s.setProfileName);
-  const setProfileCity = useAppStore((s) => s.setProfileCity);
-  const setSelectedActivities = useAppStore((s) => s.setSelectedActivities);
-  const toggleSelectedActivity = useAppStore((s) => s.toggleSelectedActivity);
-
-  const [aboutMe, setAboutMe] = useState('');
+  const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
+  const [city, setCity] = useState('');
   const [age, setAge] = useState('');
-  const [preferredAgeMin, setPreferredAgeMin] = useState('18');
-  const [preferredAgeMax, setPreferredAgeMax] = useState('99');
-  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-  const [loadingProfile, setLoadingProfile] = useState(true);
-  const [savingProfile, setSavingProfile] = useState(false);
+  const [bio, setBio] = useState('');
+  const [minAge, setMinAge] = useState(DEFAULT_MIN_AGE);
+  const [maxAge, setMaxAge] = useState(DEFAULT_MAX_AGE);
+  const [selectedActivities, setSelectedActivities] = useState<string[]>([]);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
-  const loadProfile = useCallback(async () => {
+  const completionPercent = useMemo(() => {
+    const checks = [
+      name.trim().length > 1,
+      city.trim().length > 1,
+      Number(age) > 0,
+      bio.trim().length > 10,
+      Number(minAge) > 0,
+      Number(maxAge) >= Number(minAge),
+      selectedActivities.length > 0,
+      !!avatarUrl,
+    ];
+
+    const completed = checks.filter(Boolean).length;
+    return Math.round((completed / checks.length) * 100);
+  }, [name, city, age, bio, minAge, maxAge, selectedActivities, avatarUrl]);
+
+  useEffect(() => {
+    loadProfile();
+  }, []);
+
+  async function loadProfile() {
     try {
-      setLoadingProfile(true);
+      setLoading(true);
 
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError) throw authError;
 
-      setCurrentUserEmail(user?.email ?? null);
-
-      if (!user) {
-        setLoadingProfile(false);
+      if (!authData.user) {
+        router.replace('/login');
         return;
       }
 
+      setEmail(authData.user.email ?? '');
+
       const { data, error } = await supabase
         .from('profiles')
-        .select(
-          'id, name, city, age, bio, activities, avatar_emoji, is_bankid_verified, preferred_age_min, preferred_age_max'
-        )
-        .eq('id', user.id)
-        .maybeSingle();
+        .select('id, name, city, age, bio, avatar_url, min_age, max_age, activities')
+        .eq('id', authData.user.id)
+        .single();
 
-      if (error) {
+      if (error && error.code !== 'PGRST116') {
         throw error;
       }
 
       const profile = data as ProfileRow | null;
 
       if (profile) {
-        setProfileName(profile.name ?? '');
-        setProfileCity(profile.city ?? '');
-        setAge(profile.age != null ? String(profile.age) : '');
-        setAboutMe(profile.bio ?? '');
+        setName(profile.name ?? '');
+        setCity(profile.city ?? '');
+        setAge(profile.age ? String(profile.age) : '');
+        setBio(profile.bio ?? '');
+        setAvatarUrl(profile.avatar_url ?? null);
+        setMinAge(profile.min_age ? String(profile.min_age) : DEFAULT_MIN_AGE);
+        setMaxAge(profile.max_age ? String(profile.max_age) : DEFAULT_MAX_AGE);
         setSelectedActivities(profile.activities ?? []);
-        setPreferredAgeMin(
-          profile.preferred_age_min != null ? String(profile.preferred_age_min) : '18'
-        );
-        setPreferredAgeMax(
-          profile.preferred_age_max != null ? String(profile.preferred_age_max) : '99'
-        );
       }
     } catch (error: any) {
-      Alert.alert('Kunde inte ladda profilen', error?.message || 'Något gick fel.');
+      Alert.alert('Fel', error?.message ?? 'Kunde inte ladda profilen.');
     } finally {
-      setLoadingProfile(false);
+      setLoading(false);
     }
-  }, [setProfileCity, setProfileName, setSelectedActivities]);
+  }
 
-  useEffect(() => {
-    loadProfile();
+  function toggleActivity(activity: string) {
+    setSelectedActivities((current) => {
+      const exists = current.includes(activity);
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(() => {
-      loadProfile();
+      if (exists) {
+        return current.filter((item) => item !== activity);
+      }
+
+      if (current.length >= MAX_ACTIVITIES) {
+        Alert.alert('Max antal aktiviteter', `Du kan välja upp till ${MAX_ACTIVITIES} aktiviteter.`);
+        return current;
+      }
+
+      return [...current, activity];
     });
+  }
 
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [loadProfile]);
-
-  const selectedEmoji = useMemo(() => {
-    return getProfileEmoji(selectedActivities[0]);
-  }, [selectedActivities]);
-
-  const profileCompletion = useMemo(() => {
-    let points = 0;
-    if (profileName.trim()) points += 1;
-    if (profileCity.trim()) points += 1;
-    if (aboutMe.trim()) points += 1;
-    if (selectedActivities.length > 0) points += 1;
-    if (age.trim()) points += 1;
-    if (preferredAgeMin.trim() && preferredAgeMax.trim()) points += 1;
-
-    return Math.round((points / 6) * 100);
-  }, [profileName, profileCity, aboutMe, selectedActivities, age, preferredAgeMin, preferredAgeMax]);
-
-  const handleActivityPress = (item: string) => {
-    const isSelected = selectedActivities.includes(item);
-
-    if (!isSelected && selectedActivities.length >= 15) {
-      Alert.alert('Max 15 aktiviteter', 'Du kan välja högst 15 aktiviteter i profilen.');
-      return;
-    }
-
-    toggleSelectedActivity(item);
-    setSaved(false);
-  };
-
-  const handleSave = async () => {
+  async function pickAndUploadAvatar() {
     try {
-      setSavingProfile(true);
+      setUploadingAvatar(true);
 
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        Alert.alert('Inte inloggad', 'Du måste logga in först.');
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError || !authData.user) {
+        Alert.alert('Inte inloggad', 'Logga in igen och försök på nytt.');
         return;
       }
 
-      const parsedAge = age.trim() ? Number(age.trim()) : null;
-      const parsedPreferredMin = preferredAgeMin.trim()
-        ? Number(preferredAgeMin.trim())
-        : null;
-      const parsedPreferredMax = preferredAgeMax.trim()
-        ? Number(preferredAgeMax.trim())
-        : null;
-
-      if (parsedAge !== null && (Number.isNaN(parsedAge) || parsedAge < 13 || parsedAge > 120)) {
-        Alert.alert('Ogiltig ålder', 'Skriv en giltig ålder mellan 13 och 120.');
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          'Tillåt bilder',
+          'WithU behöver tillgång till dina bilder för att kunna lägga till en profilbild.'
+        );
         return;
       }
 
-      if (
-        parsedPreferredMin === null ||
-        parsedPreferredMax === null ||
-        Number.isNaN(parsedPreferredMin) ||
-        Number.isNaN(parsedPreferredMax)
-      ) {
-        Alert.alert('Åldersfilter saknas', 'Fyll i både min och max ålder för matchning.');
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (result.canceled || !result.assets?.length) {
         return;
       }
 
-      if (parsedPreferredMin < 13 || parsedPreferredMin > 120) {
-        Alert.alert('Ogiltig minålder', 'Minåldern måste vara mellan 13 och 120.');
-        return;
-      }
+      const asset = result.assets[0];
+      const fileExt = asset.fileName?.split('.').pop()?.toLowerCase() || 'jpg';
+      const filePath = `${authData.user.id}/avatar-${Date.now()}.${fileExt}`;
 
-      if (parsedPreferredMax < 13 || parsedPreferredMax > 120) {
-        Alert.alert('Ogiltig maxålder', 'Maxåldern måste vara mellan 13 och 120.');
-        return;
-      }
+      const response = await fetch(asset.uri);
+      const arrayBuffer = await response.arrayBuffer();
 
-      if (parsedPreferredMin > parsedPreferredMax) {
-        Alert.alert('Fel åldersintervall', 'Minåldern kan inte vara högre än maxåldern.');
-        return;
-      }
+      const { error: uploadError } = await supabase.storage
+        .from('profile-images')
+        .upload(filePath, arrayBuffer, {
+          contentType: asset.mimeType ?? 'image/jpeg',
+          upsert: true,
+        });
 
-      const avatarEmoji = getProfileEmoji(selectedActivities[0]);
+      if (uploadError) throw uploadError;
 
-      const { error } = await supabase.from('profiles').upsert(
-        {
-          id: user.id,
-          name: profileName.trim(),
-          city: profileCity.trim(),
-          age: parsedAge,
-          bio: aboutMe.trim(),
+      const { data: publicUrlData } = supabase.storage
+        .from('profile-images')
+        .getPublicUrl(filePath);
+
+      const publicUrl = publicUrlData.publicUrl;
+      const timestamp = new Date().toISOString();
+
+      const { data: updatedRow, error: updateError } = await supabase
+        .from('profiles')
+        .update({
+          avatar_url: publicUrl,
+          updated_at: timestamp,
+        })
+        .eq('id', authData.user.id)
+        .select('id')
+        .maybeSingle();
+
+      if (updateError) throw updateError;
+
+      if (!updatedRow) {
+        if (!name.trim()) {
+          throw new Error('Fyll i namn och spara profil först innan du lägger till bild.');
+        }
+
+        const { error: insertError } = await supabase.from('profiles').insert({
+          id: authData.user.id,
+          name: name.trim(),
+          city: city.trim() || null,
+          age: age ? Number(age) : null,
+          bio: bio.trim() || null,
+          avatar_url: publicUrl,
+          min_age: minAge ? Number(minAge) : 18,
+          max_age: maxAge ? Number(maxAge) : 99,
           activities: selectedActivities,
-          avatar_emoji: avatarEmoji,
-          preferred_age_min: parsedPreferredMin,
-          preferred_age_max: parsedPreferredMax,
-        },
-        { onConflict: 'id' }
-      );
+          updated_at: timestamp,
+        });
 
-      if (error) {
-        throw error;
+        if (insertError) throw insertError;
       }
 
-      setSaved(true);
-
-      setTimeout(() => {
-        setSaved(false);
-      }, 1800);
+      setAvatarUrl(publicUrl);
+      Alert.alert('Klart', 'Profilbilden är uppladdad.');
     } catch (error: any) {
-      Alert.alert('Kunde inte spara profilen', error?.message || 'Något gick fel.');
+      Alert.alert(
+        'Kunde inte ladda upp bild',
+        error?.message ?? 'Något gick fel. Försök igen.'
+      );
     } finally {
-      setSavingProfile(false);
+      setUploadingAvatar(false);
     }
-  };
+  }
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    setCurrentUserEmail(null);
-    Alert.alert('Utloggad', 'Du är nu utloggad.');
-  };
+  async function removeAvatar() {
+    try {
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError || !authData.user) {
+        Alert.alert('Inte inloggad', 'Logga in igen och försök på nytt.');
+        return;
+      }
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          avatar_url: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', authData.user.id);
+
+      if (error) throw error;
+
+      setAvatarUrl(null);
+    } catch (error: any) {
+      Alert.alert(
+        'Kunde inte ta bort bild',
+        error?.message ?? 'Något gick fel. Försök igen.'
+      );
+    }
+  }
+
+  async function saveProfile() {
+    try {
+      const ageNumber = Number(age);
+      const minAgeNumber = Number(minAge);
+      const maxAgeNumber = Number(maxAge);
+
+      if (!name.trim()) {
+        Alert.alert('Namn saknas', 'Fyll i ditt namn.');
+        return;
+      }
+
+      if (!city.trim()) {
+        Alert.alert('Plats saknas', 'Fyll i din plats.');
+        return;
+      }
+
+      if (!ageNumber || ageNumber < 18 || ageNumber > 99) {
+        Alert.alert('Ogiltig ålder', 'Ålder måste vara mellan 18 och 99.');
+        return;
+      }
+
+      if (minAgeNumber < 18 || maxAgeNumber > 99 || minAgeNumber > maxAgeNumber) {
+        Alert.alert('Ogiltigt åldersspann', 'Kontrollera åldersfiltret.');
+        return;
+      }
+
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError || !authData.user) {
+        Alert.alert('Inte inloggad', 'Logga in igen och försök på nytt.');
+        return;
+      }
+
+      setSaving(true);
+
+      const payload = {
+        id: authData.user.id,
+        name: name.trim(),
+        city: city.trim(),
+        age: ageNumber,
+        bio: bio.trim(),
+        avatar_url: avatarUrl,
+        min_age: minAgeNumber,
+        max_age: maxAgeNumber,
+        activities: selectedActivities,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { error } = await supabase
+        .from('profiles')
+        .upsert(payload, { onConflict: 'id' });
+
+      if (error) throw error;
+
+      Alert.alert('Klart', 'Profilen är sparad.');
+      setIsEditing(false);
+    } catch (error: any) {
+      Alert.alert('Kunde inte spara', error?.message ?? 'Något gick fel.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function logout() {
+    Alert.alert('Logga ut', 'Vill du logga ut?', [
+      { text: 'Avbryt', style: 'cancel' },
+      {
+        text: 'Logga ut',
+        style: 'destructive',
+        onPress: async () => {
+          await supabase.auth.signOut();
+          router.replace('/login');
+        },
+      },
+    ]);
+  }
+
+  async function switchAccount() {
+    Alert.alert('Byt konto', 'Du kommer att loggas ut först.', [
+      { text: 'Avbryt', style: 'cancel' },
+      {
+        text: 'Fortsätt',
+        onPress: async () => {
+          await supabase.auth.signOut();
+          router.replace('/login');
+        },
+      },
+    ]);
+  }
+
+  if (loading) {
+    return (
+      <View style={styles.loadingWrap}>
+        <ActivityIndicator size="large" color="#1C5E52" />
+        <Text style={styles.loadingText}>Laddar profil...</Text>
+      </View>
+    );
+  }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
       <Text style={styles.pageTitle}>Profil</Text>
       <Text style={styles.pageSubtitle}>Din profil och hur andra ser dig</Text>
 
       <View style={styles.heroCard}>
-        <View style={styles.avatarCircle}>
-          <Text style={styles.avatarEmoji}>{selectedEmoji}</Text>
-        </View>
-
-        <Text style={styles.heroName}>{profileName || 'Ditt namn'}</Text>
-
-        <View style={styles.verifiedBadge}>
-          <Text style={styles.verifiedBadgeText}>✓ BankID-verifierad</Text>
-        </View>
-
-        <Text style={styles.heroMeta}>
-          {profileCity ? profileCity : 'Lägg till din plats'}
-        </Text>
-
-        {currentUserEmail ? (
-          <Text style={styles.heroEmail}>{currentUserEmail}</Text>
-        ) : (
-          <Pressable style={styles.loginButton} onPress={() => router.push('/login')}>
-            <Text style={styles.loginButtonText}>Öppna login</Text>
-          </Pressable>
-        )}
-      </View>
-
-      <View style={styles.statsRow}>
-        <View style={styles.statCard}>
-          <Text style={styles.statNumber}>{selectedActivities.length}/15</Text>
-          <Text style={styles.statLabel}>Aktiviteter</Text>
-        </View>
-
-        <View style={styles.statCard}>
-          <Text style={styles.statNumber}>{profileCompletion}%</Text>
-          <Text style={styles.statLabel}>Profil klar</Text>
-        </View>
-
-        <View style={styles.statCard}>
-          <Text style={styles.statNumber}>{currentUserEmail ? 'På' : 'Av'}</Text>
-          <Text style={styles.statLabel}>Konto</Text>
-        </View>
-      </View>
-
-      <View style={styles.accountCard}>
-        <Text style={styles.sectionTitle}>Konto</Text>
-
-        <View style={styles.accountButtonsRow}>
-          <Pressable
-            style={[styles.accountButton, styles.secondaryAccountButton]}
-            onPress={() => router.push('/login')}
-          >
-            <Text style={styles.secondaryAccountButtonText}>
-              Skapa konto / Byt konto
-            </Text>
-          </Pressable>
-
-          <Pressable
-            style={[styles.accountButton, styles.logoutButton]}
-            onPress={handleLogout}
-          >
-            <Text style={styles.logoutButtonText}>Logga ut</Text>
-          </Pressable>
-        </View>
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Grunduppgifter</Text>
-
-        <Text style={styles.label}>Namn</Text>
-        <TextInput
-          value={profileName}
-          onChangeText={(value) => {
-            setProfileName(value);
-            setSaved(false);
-          }}
-          placeholder="Skriv ditt namn"
-          placeholderTextColor="#7A8AAA"
-          style={styles.input}
-        />
-
-        <Text style={styles.label}>Plats</Text>
-        <TextInput
-          value={profileCity}
-          onChangeText={(value) => {
-            setProfileCity(value);
-            setSaved(false);
-          }}
-          placeholder="Skriv din stad"
-          placeholderTextColor="#7A8AAA"
-          style={styles.input}
-        />
-
-        <Text style={styles.label}>Ålder</Text>
-        <TextInput
-          value={age}
-          onChangeText={(value) => {
-            const onlyNumbers = value.replace(/[^0-9]/g, '');
-            setAge(onlyNumbers);
-            setSaved(false);
-          }}
-          placeholder="Skriv din ålder"
-          placeholderTextColor="#7A8AAA"
-          keyboardType="number-pad"
-          style={styles.input}
-        />
-
-        <Text style={styles.label}>Om mig</Text>
-        <TextInput
-          value={aboutMe}
-          onChangeText={(value) => {
-            setAboutMe(value);
-            setSaved(false);
-          }}
-          placeholder="Beskriv dig själv kort"
-          placeholderTextColor="#7A8AAA"
-          style={[styles.input, styles.textArea]}
-          multiline
-        />
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Åldersfilter för matchning</Text>
-        <Text style={styles.helperText}>
-          Välj vilka åldrar du vill kunna matcha med.
-        </Text>
-
-        <View style={styles.ageRangeRow}>
-          <View style={styles.ageRangeBox}>
-            <Text style={styles.label}>Min ålder</Text>
-            <TextInput
-              value={preferredAgeMin}
-              onChangeText={(value) => {
-                const onlyNumbers = value.replace(/[^0-9]/g, '');
-                setPreferredAgeMin(onlyNumbers);
-                setSaved(false);
-              }}
-              placeholder="18"
-              placeholderTextColor="#7A8AAA"
-              keyboardType="number-pad"
-              style={styles.input}
-            />
-          </View>
-
-          <View style={styles.ageRangeBox}>
-            <Text style={styles.label}>Max ålder</Text>
-            <TextInput
-              value={preferredAgeMax}
-              onChangeText={(value) => {
-                const onlyNumbers = value.replace(/[^0-9]/g, '');
-                setPreferredAgeMax(onlyNumbers);
-                setSaved(false);
-              }}
-              placeholder="99"
-              placeholderTextColor="#7A8AAA"
-              keyboardType="number-pad"
-              style={styles.input}
-            />
-          </View>
-        </View>
-      </View>
-
-      <View style={styles.card}>
-        <View style={styles.activitiesHeader}>
-          <Text style={styles.sectionTitle}>Välj aktiviteter</Text>
-
-          <View style={styles.activitiesCountBadge}>
-            <Text style={styles.activitiesCount}>{selectedActivities.length}/15 valda</Text>
-          </View>
-        </View>
-
-        <Text style={styles.helperText}>
-          Välj upp till 15 aktiviteter som beskriver vad du gillar att göra.
-        </Text>
-
-        <View style={styles.selectedActivitiesBox}>
-          {selectedActivities.length > 0 ? (
-            selectedActivities.map((item) => (
-              <View key={item} style={styles.selectedActivityChip}>
-                <Text style={styles.selectedActivityChipText}>{item}</Text>
-              </View>
-            ))
-          ) : (
-            <Text style={styles.selectedActivitiesPlaceholder}>
-              Inga aktiviteter valda ännu.
-            </Text>
-          )}
-        </View>
-
-        {ACTIVITY_CATEGORIES.map((category) => (
-          <View key={category.id} style={styles.categoryCard}>
-            <View style={styles.categoryHeader}>
-              <View style={styles.categoryEmojiBadge}>
-                <Text style={styles.categoryEmojiText}>{category.emoji}</Text>
-              </View>
-
-              <Text style={styles.categoryTitle}>{category.title}</Text>
-            </View>
-
-            <View style={styles.chipsWrap}>
-              {category.items.map((item) => {
-                const active = selectedActivities.includes(item);
-
-                return (
-                  <Pressable
-                    key={item}
-                    style={[styles.chip, active && styles.chipActive]}
-                    onPress={() => handleActivityPress(item)}
-                  >
-                    <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                      {item}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-        ))}
-
-        <Pressable
-          style={[styles.saveButton, savingProfile && styles.saveButtonDisabled]}
-          onPress={handleSave}
-          disabled={savingProfile || loadingProfile}
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={pickAndUploadAvatar}
+          style={styles.avatarButton}
         >
-          <Text style={styles.saveButtonText}>
-            {savingProfile ? 'Sparar...' : saved ? '✓ Sparat!' : 'Spara profil'}
-          </Text>
-        </Pressable>
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Förhandsvisning</Text>
-
-        <View style={styles.previewTop}>
-          <View style={styles.previewAvatar}>
-            <Text style={styles.previewAvatarEmoji}>{selectedEmoji}</Text>
-          </View>
-
-          <View style={styles.previewInfo}>
-            <Text style={styles.previewName}>
-              {profileName || 'Ditt namn'}
-              {age.trim() ? `, ${age}` : ''}
-            </Text>
-            <Text style={styles.previewCity}>
-              {profileCity || 'Din plats'}
-            </Text>
-          </View>
-        </View>
-
-        <Text style={styles.previewAbout}>
-          {aboutMe.trim() || 'Din korta profiltext kommer att visas här.'}
-        </Text>
-
-        <Text style={styles.previewMatchRange}>
-          Vill matcha med: {preferredAgeMin || '-'}–{preferredAgeMax || '-'} år
-        </Text>
-
-        <View style={styles.previewChips}>
-          {selectedActivities.length > 0 ? (
-            selectedActivities.map((item) => (
-              <View key={item} style={styles.previewChip}>
-                <Text style={styles.previewChipText}>{item}</Text>
-              </View>
-            ))
+          {avatarUrl ? (
+            <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
           ) : (
-            <Text style={styles.previewHint}>Välj aktiviteter för att se dem här.</Text>
+            <View style={styles.avatarFallback}>
+              <Ionicons name="person" size={60} color="#617092" />
+            </View>
           )}
+
+          <View style={styles.cameraBadge}>
+            {uploadingAvatar ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Ionicons name="camera" size={18} color="#FFFFFF" />
+            )}
+          </View>
+        </TouchableOpacity>
+
+        <Text style={styles.profileName}>{name || 'Ditt namn'}</Text>
+        <Text style={styles.profileMeta}>
+          {city || 'Din plats'}
+          {age ? ` • ${age} år` : ''}
+        </Text>
+
+        <View style={styles.pillRow}>
+          <View style={styles.coolPill}>
+            <Ionicons name="checkmark-circle" size={16} color="#1C5E52" />
+            <Text style={styles.coolPillText}>{completionPercent}% profil klar</Text>
+          </View>
+
+          <View style={styles.coolPill}>
+            <Ionicons name="people-outline" size={16} color="#20325E" />
+            <Text style={styles.coolPillText}>{selectedActivities.length}/{MAX_ACTIVITIES} aktiviteter</Text>
+          </View>
         </View>
 
-        {loadingProfile ? (
-          <Text style={styles.loadingText}>Laddar profil från servern...</Text>
+        <View style={styles.heroButtons}>
+          <TouchableOpacity
+            style={styles.primaryButton}
+            onPress={() => setIsEditing((v) => !v)}
+          >
+            <Text style={styles.primaryButtonText}>
+              {isEditing ? 'Stäng redigering' : 'Redigera profil'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.secondaryCompactButton} onPress={pickAndUploadAvatar}>
+            <Text style={styles.secondaryCompactButtonText}>
+              {avatarUrl ? 'Byt bild' : 'Lägg till bild'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {avatarUrl ? (
+          <TouchableOpacity onPress={removeAvatar}>
+            <Text style={styles.removeAvatarText}>Ta bort bild</Text>
+          </TouchableOpacity>
         ) : null}
       </View>
+
+      {!isEditing ? (
+        <>
+          <View style={styles.statsRow}>
+            <View style={styles.statCard}>
+              <Text style={styles.statNumber}>{minAge}–{maxAge}</Text>
+              <Text style={styles.statLabel}>Matchning</Text>
+            </View>
+
+            <View style={styles.statCard}>
+              <Text style={styles.statNumber}>{selectedActivities.length}</Text>
+              <Text style={styles.statLabel}>Valda</Text>
+            </View>
+
+            <View style={styles.statCard}>
+              <Text style={styles.statNumber}>{avatarUrl ? 'Ja' : 'Nej'}</Text>
+              <Text style={styles.statLabel}>Profilbild</Text>
+            </View>
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Om mig</Text>
+            <Text style={styles.bodyText}>
+              {bio || 'Skriv något kort om dig själv så andra får en bättre känsla av vem du är.'}
+            </Text>
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Jag vill matcha med</Text>
+            <Text style={styles.bodyText}>{minAge}–{maxAge} år</Text>
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Aktiviteter</Text>
+            <View style={styles.chipsWrap}>
+              {selectedActivities.length ? (
+                selectedActivities.map((item) => (
+                  <View key={`selected-${item}`} style={[styles.chip, styles.chipActive]}>
+                    <Text style={[styles.chipText, styles.chipTextActive]}>{item}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.mutedText}>Inga aktiviteter valda ännu.</Text>
+              )}
+            </View>
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Konto</Text>
+            {!!email && <Text style={styles.accountEmail}>{email}</Text>}
+
+            <View style={styles.accountRow}>
+              <TouchableOpacity style={styles.secondaryButton} onPress={switchAccount}>
+                <Text style={styles.secondaryButtonText}>Byt konto</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.dangerButton} onPress={logout}>
+                <Text style={styles.dangerButtonText}>Logga ut</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </>
+      ) : (
+        <>
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Grunduppgifter</Text>
+
+            <Text style={styles.fieldLabel}>Namn</Text>
+            <TextInput
+              value={name}
+              onChangeText={setName}
+              placeholder="Ditt namn"
+              placeholderTextColor="#8A97B8"
+              style={styles.input}
+            />
+
+            <Text style={styles.fieldLabel}>Plats</Text>
+            <TextInput
+              value={city}
+              onChangeText={setCity}
+              placeholder="Din stad"
+              placeholderTextColor="#8A97B8"
+              style={styles.input}
+            />
+
+            <Text style={styles.fieldLabel}>Ålder</Text>
+            <TextInput
+              value={age}
+              onChangeText={setAge}
+              placeholder="Din ålder"
+              placeholderTextColor="#8A97B8"
+              keyboardType="number-pad"
+              style={styles.input}
+            />
+
+            <Text style={styles.fieldLabel}>Om mig</Text>
+            <TextInput
+              value={bio}
+              onChangeText={setBio}
+              placeholder="Skriv kort om dig själv"
+              placeholderTextColor="#8A97B8"
+              multiline
+              textAlignVertical="top"
+              style={[styles.input, styles.textArea]}
+            />
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Åldersfilter för matchning</Text>
+            <Text style={styles.mutedText}>Välj vilka åldrar du vill kunna matcha med.</Text>
+
+            <View style={styles.ageRow}>
+              <View style={styles.ageCol}>
+                <Text style={styles.fieldLabel}>Min ålder</Text>
+                <TextInput
+                  value={minAge}
+                  onChangeText={setMinAge}
+                  placeholder="18"
+                  placeholderTextColor="#8A97B8"
+                  keyboardType="number-pad"
+                  style={styles.input}
+                />
+              </View>
+
+              <View style={styles.ageCol}>
+                <Text style={styles.fieldLabel}>Max ålder</Text>
+                <TextInput
+                  value={maxAge}
+                  onChangeText={setMaxAge}
+                  placeholder="99"
+                  placeholderTextColor="#8A97B8"
+                  keyboardType="number-pad"
+                  style={styles.input}
+                />
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.card}>
+            <View style={styles.activitiesHeader}>
+              <Text style={styles.sectionTitle}>Välj aktiviteter</Text>
+              <View style={styles.blueBadge}>
+                <Text style={styles.blueBadgeText}>{selectedActivities.length}/{MAX_ACTIVITIES}</Text>
+              </View>
+            </View>
+
+            {ACTIVITY_CATEGORIES.map((category) => (
+              <View key={category.title} style={styles.categoryCard}>
+                <View style={styles.categoryTitleRow}>
+                  <Text style={styles.categoryEmoji}>{category.emoji}</Text>
+                  <Text style={styles.categoryTitle}>{category.title}</Text>
+                </View>
+
+                <View style={styles.chipsWrap}>
+                  {category.items.map((item) => {
+                    const active = selectedActivities.includes(item);
+
+                    return (
+                      <TouchableOpacity
+                        key={`${category.title}-${item}`}
+                        onPress={() => toggleActivity(item)}
+                        style={[styles.chip, active && styles.chipActive]}
+                      >
+                        <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                          {item}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            ))}
+          </View>
+
+          <TouchableOpacity style={styles.saveButton} onPress={saveProfile} disabled={saving}>
+            {saving ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text style={styles.saveButtonText}>Spara ändringar</Text>
+            )}
+          </TouchableOpacity>
+        </>
+      )}
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  screen: {
     flex: 1,
-    backgroundColor: '#F0F2F8',
+    backgroundColor: '#F4F6FB',
   },
+
   content: {
-    paddingHorizontal: 20,
-    paddingTop: 64,
+    padding: 20,
     paddingBottom: 40,
   },
+
+  loadingWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F4F6FB',
+  },
+
+  loadingText: {
+    marginTop: 12,
+    color: '#20325E',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+
   pageTitle: {
-    color: '#1B2B4B',
-    fontSize: 30,
+    fontSize: 34,
+    lineHeight: 40,
     fontWeight: '800',
-    marginBottom: 4,
+    color: '#20325E',
+    marginBottom: 8,
   },
+
   pageSubtitle: {
+    fontSize: 16,
+    lineHeight: 24,
     color: '#7A8AAA',
-    fontSize: 14,
-    marginBottom: 18,
+    marginBottom: 16,
   },
+
   heroCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: '#DDE2EF',
+    borderRadius: 30,
     padding: 24,
-    alignItems: 'center',
     marginBottom: 16,
-    shadowColor: '#1B2B4B',
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#E6EAF4',
+    alignItems: 'center',
   },
-  avatarCircle: {
-    width: 104,
-    height: 104,
-    borderRadius: 52,
-    backgroundColor: '#EEF1F8',
-    borderWidth: 2,
+
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 28,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#E6EAF4',
+  },
+
+  avatarButton: {
+    width: 136,
+    height: 136,
+    borderRadius: 68,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    marginBottom: 16,
+  },
+
+  avatarImage: {
+    width: 136,
+    height: 136,
+    borderRadius: 68,
+    borderWidth: 4,
+    borderColor: '#1C5E52',
+  },
+
+  avatarFallback: {
+    width: 136,
+    height: 136,
+    borderRadius: 68,
+    backgroundColor: '#F2F4FA',
+    borderWidth: 4,
     borderColor: '#1C5E52',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 14,
   },
-  avatarEmoji: {
-    fontSize: 48,
-  },
-  heroName: {
-    color: '#1B2B4B',
-    fontSize: 28,
-    fontWeight: '800',
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  verifiedBadge: {
-    backgroundColor: '#E8F4F0',
-    borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    marginBottom: 10,
-  },
-  verifiedBadgeText: {
-    color: '#1C5E52',
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  heroMeta: {
-    color: '#7A8AAA',
-    fontSize: 15,
-    marginBottom: 6,
-    textAlign: 'center',
-  },
-  heroEmail: {
-    color: '#7A8AAA',
-    fontSize: 13,
-    textAlign: 'center',
-  },
-  loginButton: {
-    marginTop: 6,
+
+  cameraBadge: {
+    position: 'absolute',
+    right: 4,
+    bottom: 4,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: '#1C5E52',
-    borderRadius: 14,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
   },
-  loginButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
+
+  profileName: {
+    fontSize: 32,
+    lineHeight: 38,
     fontWeight: '800',
+    color: '#20325E',
+    marginBottom: 8,
   },
-  statsRow: {
+
+  profileMeta: {
+    fontSize: 16,
+    lineHeight: 22,
+    color: '#7A8AAA',
+    marginBottom: 14,
+    textAlign: 'center',
+  },
+
+  pillRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 10,
+    justifyContent: 'center',
     marginBottom: 16,
   },
+
+  coolPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: '#EEF4FF',
+    borderWidth: 1,
+    borderColor: '#D8E4FA',
+  },
+
+  coolPillText: {
+    color: '#20325E',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+
+  heroButtons: {
+    width: '100%',
+    gap: 10,
+  },
+
+  primaryButton: {
+    minHeight: 56,
+    borderRadius: 18,
+    backgroundColor: '#1C5E52',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  primaryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '800',
+  },
+
+  secondaryCompactButton: {
+    minHeight: 52,
+    borderRadius: 18,
+    backgroundColor: '#EFF3FB',
+    borderWidth: 1,
+    borderColor: '#DCE4F3',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  secondaryCompactButtonText: {
+    color: '#20325E',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+
+  removeAvatarText: {
+    marginTop: 12,
+    color: '#C0392B',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+
+  statsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+  },
+
   statCard: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#DDE2EF',
+    borderRadius: 24,
     paddingVertical: 18,
+    paddingHorizontal: 10,
     alignItems: 'center',
-    marginHorizontal: 4,
-    shadowColor: '#1B2B4B',
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#E6EAF4',
   },
+
   statNumber: {
-    color: '#1B2B4B',
-    fontSize: 24,
+    fontSize: 20,
+    lineHeight: 26,
     fontWeight: '800',
-    marginBottom: 4,
-  },
-  statLabel: {
-    color: '#7A8AAA',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  accountCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: '#DDE2EF',
-    padding: 22,
-    marginBottom: 16,
-    shadowColor: '#1B2B4B',
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 3,
-  },
-  accountButtonsRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  accountButton: {
-    flex: 1,
-    borderRadius: 14,
-    paddingVertical: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  secondaryAccountButton: {
-    backgroundColor: '#EEF1F8',
-    borderWidth: 1,
-    borderColor: '#DDE2EF',
-  },
-  secondaryAccountButtonText: {
-    color: '#1B2B4B',
-    fontSize: 14,
-    fontWeight: '800',
+    color: '#20325E',
+    marginBottom: 6,
     textAlign: 'center',
   },
-  logoutButton: {
-    backgroundColor: '#FCEAEA',
-    borderWidth: 1,
-    borderColor: '#F2C8C8',
-  },
-  logoutButtonText: {
-    color: '#B42318',
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: '#DDE2EF',
-    padding: 22,
-    marginBottom: 16,
-    shadowColor: '#1B2B4B',
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 3,
-  },
-  sectionTitle: {
-    color: '#1B2B4B',
-    fontSize: 24,
-    fontWeight: '800',
-    marginBottom: 14,
-  },
-  helperText: {
+
+  statLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
     color: '#7A8AAA',
-    fontSize: 14,
-    lineHeight: 22,
-    marginBottom: 12,
+    textAlign: 'center',
   },
-  label: {
-    color: '#1B2B4B',
-    fontSize: 14,
-    fontWeight: '700',
-    marginBottom: 8,
-    marginTop: 4,
-  },
-  input: {
-    backgroundColor: '#F0F2F8',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#DDE2EF',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    color: '#1B2B4B',
-    fontSize: 15,
+
+  sectionTitle: {
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: '800',
+    color: '#20325E',
     marginBottom: 14,
   },
-  textArea: {
-    minHeight: 110,
-    textAlignVertical: 'top',
+
+  bodyText: {
+    fontSize: 18,
+    lineHeight: 30,
+    color: '#26334F',
   },
-  ageRangeRow: {
+
+  mutedText: {
+    fontSize: 16,
+    lineHeight: 24,
+    color: '#7A8AAA',
+  },
+
+  accountEmail: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: '#7A8AAA',
+    marginBottom: 14,
+  },
+
+  fieldLabel: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '700',
+    color: '#20325E',
+    marginBottom: 8,
+    marginTop: 12,
+  },
+
+  input: {
+    minHeight: 62,
+    borderRadius: 18,
+    backgroundColor: '#F2F4FA',
+    borderWidth: 1,
+    borderColor: '#E0E6F2',
+    paddingHorizontal: 16,
+    fontSize: 16,
+    color: '#20325E',
+  },
+
+  textArea: {
+    minHeight: 130,
+    paddingTop: 16,
+    paddingBottom: 16,
+  },
+
+  ageRow: {
     flexDirection: 'row',
     gap: 12,
   },
-  ageRangeBox: {
+
+  ageCol: {
     flex: 1,
   },
+
   activitiesHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
     marginBottom: 8,
   },
-  activitiesCountBadge: {
-    backgroundColor: '#FEF4E8',
+
+  blueBadge: {
+    backgroundColor: '#EEF4FF',
     borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  activitiesCount: {
-    color: '#C07020',
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  selectedActivitiesBox: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#DDE2EF',
-    borderRadius: 18,
-    padding: 12,
-    marginBottom: 10,
-  },
-  selectedActivityChip: {
-    backgroundColor: '#E8F4F0',
-    borderWidth: 1,
-    borderColor: '#1C5E52',
-    borderRadius: 999,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingVertical: 7,
-    marginRight: 8,
-    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#D8E4FA',
   },
-  selectedActivityChipText: {
-    color: '#1C5E52',
-    fontSize: 13,
+
+  blueBadgeText: {
+    color: '#20325E',
+    fontSize: 14,
     fontWeight: '800',
   },
-  selectedActivitiesPlaceholder: {
-    color: '#7A8AAA',
-    fontSize: 14,
-  },
+
   categoryCard: {
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#FBFCFF',
+    borderRadius: 24,
     borderWidth: 1,
-    borderColor: '#E7ECF5',
-    borderRadius: 18,
-    padding: 14,
+    borderColor: '#E6EAF4',
+    padding: 16,
     marginTop: 12,
   },
-  categoryHeader: {
+
+  categoryTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 12,
   },
-  categoryEmojiBadge: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: '#EEF1F8',
-    alignItems: 'center',
-    justifyContent: 'center',
+
+  categoryEmoji: {
+    fontSize: 24,
     marginRight: 10,
   },
-  categoryEmojiText: {
-    fontSize: 16,
-  },
+
   categoryTitle: {
-    color: '#1B2B4B',
-    fontSize: 16,
+    fontSize: 20,
+    lineHeight: 26,
     fontWeight: '800',
-    flex: 1,
+    color: '#20325E',
   },
+
   chipsWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    gap: 10,
   },
+
   chip: {
-    backgroundColor: '#F7F9FC',
-    borderWidth: 1,
-    borderColor: '#DDE2EF',
+    backgroundColor: '#F3F6FC',
+    borderWidth: 1.5,
+    borderColor: '#D7DFEF',
     borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginRight: 8,
-    marginBottom: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
   },
+
   chipActive: {
-    backgroundColor: '#E8F4F0',
+    backgroundColor: '#EAF6F2',
     borderColor: '#1C5E52',
   },
+
   chipText: {
-    color: '#1B2B4B',
-    fontSize: 13,
+    color: '#20325E',
+    fontSize: 16,
     fontWeight: '700',
   },
+
   chipTextActive: {
     color: '#1C5E52',
   },
+
   saveButton: {
     backgroundColor: '#1C5E52',
-    borderRadius: 16,
-    paddingVertical: 17,
-    alignItems: 'center',
-    marginTop: 18,
-    shadowColor: '#1C5E52',
-    shadowOpacity: 0.18,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 3,
-  },
-  saveButtonDisabled: {
-    opacity: 0.6,
-  },
-  saveButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  previewTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 14,
-  },
-  previewAvatar: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#EEF1F8',
+    minHeight: 64,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 14,
+    marginBottom: 16,
   },
-  previewAvatarEmoji: {
-    fontSize: 30,
-  },
-  previewInfo: {
-    flex: 1,
-  },
-  previewName: {
-    color: '#1B2B4B',
-    fontSize: 22,
+
+  saveButtonText: {
+    color: '#FFFFFF',
+    fontSize: 20,
     fontWeight: '800',
-    marginBottom: 2,
   },
-  previewCity: {
-    color: '#7A8AAA',
-    fontSize: 14,
-  },
-  previewAbout: {
-    color: '#333333',
-    fontSize: 15,
-    lineHeight: 24,
-    marginBottom: 14,
-  },
-  previewMatchRange: {
-    color: '#1B2B4B',
-    fontSize: 14,
-    fontWeight: '700',
-    marginBottom: 14,
-  },
-  previewChips: {
+
+  accountRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    gap: 12,
   },
-  previewChip: {
-    backgroundColor: '#EEF1F8',
-    borderRadius: 999,
+
+  secondaryButton: {
+    flex: 1,
+    minHeight: 64,
+    backgroundColor: '#EFF3FB',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#DCE4F3',
+    alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginRight: 8,
-    marginBottom: 8,
   },
-  previewChipText: {
-    color: '#1B2B4B',
-    fontSize: 13,
+
+  secondaryButtonText: {
+    color: '#20325E',
+    fontSize: 18,
     fontWeight: '800',
+    textAlign: 'center',
   },
-  previewHint: {
-    color: '#7A8AAA',
-    fontSize: 14,
+
+  dangerButton: {
+    flex: 1,
+    minHeight: 64,
+    backgroundColor: '#FBECEC',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#F2CACA',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
   },
-  loadingText: {
-    color: '#7A8AAA',
-    fontSize: 13,
-    marginTop: 8,
+
+  dangerButtonText: {
+    color: '#C0392B',
+    fontSize: 18,
+    fontWeight: '800',
+    textAlign: 'center',
   },
 });
