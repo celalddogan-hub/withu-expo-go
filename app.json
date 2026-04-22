@@ -1,15 +1,17 @@
 {
   "expo": {
-    "name": "withu-expo-go",
+    "name": "WithU",
     "slug": "withu-expo-go",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "withuexpogo",
+    "scheme": "withu",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false,
+      "bundleIdentifier": "com.withu.app",
+      "buildNumber": "1"
     },
     "android": {
       "adaptiveIcon": {
@@ -19,7 +21,9 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.withu.app",
+      "versionCode": 1
     },
     "web": {
       "output": "static",
@@ -33,9 +37,9 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
+          "backgroundColor": "#020f3a",
           "dark": {
-            "backgroundColor": "#000000"
+            "backgroundColor": "#020f3a"
           }
         }
       ],
@@ -43,7 +47,7 @@
       [
         "expo-audio",
         {
-          "microphonePermission": "Allow WithU to access your microphone.",
+          "microphonePermission": "WithU behover tillgang till mikrofonen for rostmeddelanden.",
           "enableBackgroundRecording": false,
           "enableBackgroundPlayback": false
         }
@@ -52,13 +56,18 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "WithU behöver tillgång till dina bilder så att du kan lägga till en profilbild."
+          "photosPermission": "WithU behover tillgang till dina bilder for profilbild och chattbilder."
         }
       ]
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "lagg-till-ditt-eas-project-id-har"
+      }
     }
   }
 }

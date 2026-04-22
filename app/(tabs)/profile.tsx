@@ -1,24 +1,43 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Alert,
   ActivityIndicator,
+  Alert,
   Image,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { supabase } from '../../src/lib/supabase';
+import VolunteerStatusCard from '../../src/components/volunteer/VolunteerStatusCard';
 
 type Category = {
   title: string;
   emoji: string;
   items: string[];
+};
+
+type ProfileRow = {
+  id: string;
+  name: string | null;
+  city: string | null;
+  age: number | null;
+  bio: string | null;
+  avatar_url: string | null;
+  min_age: number | null;
+  max_age: number | null;
+  activities: string[] | null;
+  is_bankid_verified: boolean | null;
 };
 
 const ACTIVITY_CATEGORIES: Category[] = [
@@ -77,27 +96,25 @@ const ACTIVITY_CATEGORIES: Category[] = [
 const MAX_ACTIVITIES = 15;
 const DEFAULT_MIN_AGE = '18';
 const DEFAULT_MAX_AGE = '99';
-
-type ProfileRow = {
-  id: string;
-  name: string | null;
-  city: string | null;
-  age: number | null;
-  bio: string | null;
-  avatar_url: string | null;
-  min_age: number | null;
-  max_age: number | null;
-  activities: string[] | null;
-};
+const DELETE_CONFIRM_TEXT = 'TA BORT';
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const { width } = useWindowDimensions();
+
+  const isWide = width >= 900;
+  const isTablet = width >= 700;
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [deleteConfirmValue, setDeleteConfirmValue] = useState('');
+
+  const [currentUserId, setCurrentUserId] = useState('');
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [city, setCity] = useState('');
@@ -107,6 +124,9 @@ export default function ProfileScreen() {
   const [maxAge, setMaxAge] = useState(DEFAULT_MAX_AGE);
   const [selectedActivities, setSelectedActivities] = useState<string[]>([]);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+
+  const [isBankIdVerified, setIsBankIdVerified] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const completionPercent = useMemo(() => {
     const checks = [
@@ -119,10 +139,15 @@ export default function ProfileScreen() {
       selectedActivities.length > 0,
       !!avatarUrl,
     ];
-
     const completed = checks.filter(Boolean).length;
     return Math.round((completed / checks.length) * 100);
   }, [name, city, age, bio, minAge, maxAge, selectedActivities, avatarUrl]);
+
+  const visibleActivities = selectedActivities.slice(0, isTablet ? 12 : 8);
+  const hiddenActivities = Math.max(0, selectedActivities.length - visibleActivities.length);
+
+  const canConfirmDelete =
+    deleteConfirmValue.trim().toUpperCase() === DELETE_CONFIRM_TEXT && !deletingAccount;
 
   useEffect(() => {
     loadProfile();
@@ -140,19 +165,32 @@ export default function ProfileScreen() {
         return;
       }
 
+      setCurrentUserId(authData.user.id);
       setEmail(authData.user.email ?? '');
 
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, name, city, age, bio, avatar_url, min_age, max_age, activities')
-        .eq('id', authData.user.id)
-        .single();
+      const [{ data: profileData, error: profileError }, { data: adminData, error: adminError }] =
+        await Promise.all([
+          supabase
+            .from('profiles')
+            .select(
+              'id, name, city, age, bio, avatar_url, min_age, max_age, activities, is_bankid_verified'
+            )
+            .eq('id', authData.user.id)
+            .single(),
+          supabase.from('admins').select('user_id').eq('user_id', authData.user.id).maybeSingle(),
+        ]);
 
-      if (error && error.code !== 'PGRST116') {
-        throw error;
+      if (profileError && profileError.code !== 'PGRST116') {
+        throw profileError;
       }
 
-      const profile = data as ProfileRow | null;
+      if (adminError) {
+        throw adminError;
+      }
+
+      const profile = profileData as ProfileRow | null;
+
+      setIsAdmin(!!adminData);
 
       if (profile) {
         setName(profile.name ?? '');
@@ -163,6 +201,9 @@ export default function ProfileScreen() {
         setMinAge(profile.min_age ? String(profile.min_age) : DEFAULT_MIN_AGE);
         setMaxAge(profile.max_age ? String(profile.max_age) : DEFAULT_MAX_AGE);
         setSelectedActivities(profile.activities ?? []);
+        setIsBankIdVerified(!!profile.is_bankid_verified);
+      } else {
+        setIsBankIdVerified(false);
       }
     } catch (error: any) {
       Alert.alert('Fel', error?.message ?? 'Kunde inte ladda profilen.');
@@ -208,15 +249,13 @@ export default function ProfileScreen() {
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
+        mediaTypes: ['images'] as any,
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.8,
+        quality: 0.82,
       });
 
-      if (result.canceled || !result.assets?.length) {
-        return;
-      }
+      if (result.canceled || !result.assets?.length) return;
 
       const asset = result.assets[0];
       const fileExt = asset.fileName?.split('.').pop()?.toLowerCase() || 'jpg';
@@ -234,9 +273,7 @@ export default function ProfileScreen() {
 
       if (uploadError) throw uploadError;
 
-      const { data: publicUrlData } = supabase.storage
-        .from('profile-images')
-        .getPublicUrl(filePath);
+      const { data: publicUrlData } = supabase.storage.from('profile-images').getPublicUrl(filePath);
 
       const publicUrl = publicUrlData.publicUrl;
       const timestamp = new Date().toISOString();
@@ -306,10 +343,7 @@ export default function ProfileScreen() {
 
       setAvatarUrl(null);
     } catch (error: any) {
-      Alert.alert(
-        'Kunde inte ta bort bild',
-        error?.message ?? 'Något gick fel. Försök igen.'
-      );
+      Alert.alert('Kunde inte ta bort bild', error?.message ?? 'Något gick fel. Försök igen.');
     }
   }
 
@@ -360,14 +394,13 @@ export default function ProfileScreen() {
         updated_at: new Date().toISOString(),
       };
 
-      const { error } = await supabase
-        .from('profiles')
-        .upsert(payload, { onConflict: 'id' });
+      const { error } = await supabase.from('profiles').upsert(payload, { onConflict: 'id' });
 
       if (error) throw error;
 
       Alert.alert('Klart', 'Profilen är sparad.');
       setIsEditing(false);
+      await loadProfile();
     } catch (error: any) {
       Alert.alert('Kunde inte spara', error?.message ?? 'Något gick fel.');
     } finally {
@@ -382,7 +415,7 @@ export default function ProfileScreen() {
         text: 'Logga ut',
         style: 'destructive',
         onPress: async () => {
-          await supabase.auth.signOut();
+          await supabase.auth.signOut({ scope: 'local' });
           router.replace('/login');
         },
       },
@@ -395,11 +428,75 @@ export default function ProfileScreen() {
       {
         text: 'Fortsätt',
         onPress: async () => {
-          await supabase.auth.signOut();
+          await supabase.auth.signOut({ scope: 'local' });
           router.replace('/login');
         },
       },
     ]);
+  }
+
+  function openDeleteAccountModal() {
+    setDeleteConfirmValue('');
+    setDeleteModalVisible(true);
+  }
+
+  async function deleteAccount() {
+    if (!canConfirmDelete || deletingAccount) return;
+
+    try {
+      setDeletingAccount(true);
+
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError) throw sessionError;
+      if (!session?.access_token) {
+        throw new Error('Ingen aktiv session hittades. Logga in igen och försök igen.');
+      }
+
+      const { error } = await supabase.functions.invoke('delete-account', {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: {
+          confirmText: DELETE_CONFIRM_TEXT,
+        },
+      });
+
+      if (error) {
+        let message = error.message || 'Något gick fel.';
+        try {
+          const details = await (error as any)?.context?.json?.();
+          if (details?.error) {
+            message = details.error;
+          }
+        } catch {
+          // ignore
+        }
+        throw new Error(message);
+      }
+
+      await supabase.auth.signOut({ scope: 'local' });
+
+      setDeleteModalVisible(false);
+      setDeleteConfirmValue('');
+
+      Alert.alert('Kontot är borttaget', 'Ditt konto har raderats.', [
+        {
+          text: 'OK',
+          onPress: () => router.replace('/login'),
+        },
+      ]);
+    } catch (error: any) {
+      Alert.alert(
+        'Kunde inte ta bort konto',
+        error?.message ?? 'Något gick fel. Försök igen.'
+      );
+    } finally {
+      setDeletingAccount(false);
+    }
   }
 
   if (loading) {
@@ -412,258 +509,480 @@ export default function ProfileScreen() {
   }
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <Text style={styles.pageTitle}>Profil</Text>
-      <Text style={styles.pageSubtitle}>Din profil och hur andra ser dig</Text>
+    <>
+      <ScrollView
+        style={styles.screen}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={[styles.pageWrap, isWide && styles.pageWrapWide]}>
+          <View style={styles.pageHeader}>
+            <Text style={styles.pageTitle}>Profil</Text>
+            <Text style={styles.pageSubtitle}>Din profil och hur andra ser dig</Text>
+          </View>
 
-      <View style={styles.heroCard}>
-        <TouchableOpacity
-          activeOpacity={0.9}
-          onPress={pickAndUploadAvatar}
-          style={styles.avatarButton}
-        >
-          {avatarUrl ? (
-            <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
-          ) : (
-            <View style={styles.avatarFallback}>
-              <Ionicons name="person" size={60} color="#617092" />
+          <View style={styles.heroCard}>
+            <View
+              style={[
+                styles.heroTop,
+                {
+                  flexDirection: isTablet ? 'row' : 'column',
+                  alignItems: 'center',
+                },
+              ]}
+            >
+              <TouchableOpacity
+                activeOpacity={0.9}
+                onPress={pickAndUploadAvatar}
+                style={[styles.avatarButton, isTablet && { marginBottom: 0, marginRight: 20 }]}
+              >
+                {avatarUrl ? (
+                  <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+                ) : (
+                  <View style={styles.avatarFallback}>
+                    <Ionicons name="person" size={56} color="#617092" />
+                  </View>
+                )}
+
+                <View style={styles.cameraBadge}>
+                  {uploadingAvatar ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Ionicons name="camera" size={18} color="#FFFFFF" />
+                  )}
+                </View>
+              </TouchableOpacity>
+
+              <View style={[styles.heroTextWrap, isTablet && { alignItems: 'flex-start' }]}>
+                <Text style={styles.heroEyebrow}>MIN PROFIL</Text>
+                <Text style={styles.profileName}>{name || 'Ditt namn'}</Text>
+                <Text style={styles.profileMeta}>
+                  {city || 'Din plats'}
+                  {age ? ` • ${age} år` : ''}
+                </Text>
+
+                <View style={styles.heroPillsRow}>
+                  <View style={styles.heroPill}>
+                    <Ionicons name="checkmark-circle" size={15} color="#1C5E52" />
+                    <Text style={styles.heroPillText}>{completionPercent}% profil klar</Text>
+                  </View>
+
+                  <View style={styles.heroPill}>
+                    <Ionicons name="sparkles-outline" size={15} color="#20325E" />
+                    <Text style={styles.heroPillText}>
+                      {selectedActivities.length}/{MAX_ACTIVITIES} aktiviteter
+                    </Text>
+                  </View>
+
+                  <View style={styles.heroPill}>
+                    <Ionicons
+                      name={isBankIdVerified ? 'shield-checkmark' : 'shield-outline'}
+                      size={15}
+                      color={isBankIdVerified ? '#1C5E52' : '#8A97B8'}
+                    />
+                    <Text style={styles.heroPillText}>
+                      {isBankIdVerified ? 'BankID verifierad' : 'Ingen BankID ännu'}
+                    </Text>
+                  </View>
+                </View>
+
+                {!!email && <Text style={styles.emailText}>{email}</Text>}
+              </View>
             </View>
-          )}
 
-          <View style={styles.cameraBadge}>
-            {uploadingAvatar ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
-            ) : (
-              <Ionicons name="camera" size={18} color="#FFFFFF" />
-            )}
+            <View style={[styles.heroActions, { flexDirection: isTablet ? 'row' : 'column' }]}>
+              <TouchableOpacity
+                style={[styles.primaryButton, isTablet && styles.heroActionHalf]}
+                onPress={() => setIsEditing((v) => !v)}
+              >
+                <Text style={styles.primaryButtonText}>
+                  {isEditing ? 'Stäng redigering' : 'Redigera profil'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.secondaryButtonStrong, isTablet && styles.heroActionHalf]}
+                onPress={pickAndUploadAvatar}
+              >
+                <Text style={styles.secondaryButtonStrongText}>
+                  {avatarUrl ? 'Byt bild' : 'Lägg till bild'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {avatarUrl ? (
+              <TouchableOpacity onPress={removeAvatar}>
+                <Text style={styles.removeAvatarText}>Ta bort profilbild</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
-        </TouchableOpacity>
 
-        <Text style={styles.profileName}>{name || 'Ditt namn'}</Text>
-        <Text style={styles.profileMeta}>
-          {city || 'Din plats'}
-          {age ? ` • ${age} år` : ''}
-        </Text>
+          {currentUserId ? <VolunteerStatusCard userId={currentUserId} /> : null}
 
-        <View style={styles.pillRow}>
-          <View style={styles.coolPill}>
-            <Ionicons name="checkmark-circle" size={16} color="#1C5E52" />
-            <Text style={styles.coolPillText}>{completionPercent}% profil klar</Text>
-          </View>
-
-          <View style={styles.coolPill}>
-            <Ionicons name="people-outline" size={16} color="#20325E" />
-            <Text style={styles.coolPillText}>{selectedActivities.length}/{MAX_ACTIVITIES} aktiviteter</Text>
-          </View>
-        </View>
-
-        <View style={styles.heroButtons}>
-          <TouchableOpacity
-            style={styles.primaryButton}
-            onPress={() => setIsEditing((v) => !v)}
-          >
-            <Text style={styles.primaryButtonText}>
-              {isEditing ? 'Stäng redigering' : 'Redigera profil'}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.secondaryCompactButton} onPress={pickAndUploadAvatar}>
-            <Text style={styles.secondaryCompactButtonText}>
-              {avatarUrl ? 'Byt bild' : 'Lägg till bild'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {avatarUrl ? (
-          <TouchableOpacity onPress={removeAvatar}>
-            <Text style={styles.removeAvatarText}>Ta bort bild</Text>
-          </TouchableOpacity>
-        ) : null}
-      </View>
-
-      {!isEditing ? (
-        <>
           <View style={styles.statsRow}>
             <View style={styles.statCard}>
-              <Text style={styles.statNumber}>{minAge}–{maxAge}</Text>
+              <Text style={styles.statValue}>
+                {minAge}–{maxAge}
+              </Text>
               <Text style={styles.statLabel}>Matchning</Text>
             </View>
 
             <View style={styles.statCard}>
-              <Text style={styles.statNumber}>{selectedActivities.length}</Text>
+              <Text style={styles.statValue}>{selectedActivities.length}</Text>
               <Text style={styles.statLabel}>Valda</Text>
             </View>
 
-            <View style={styles.statCard}>
-              <Text style={styles.statNumber}>{avatarUrl ? 'Ja' : 'Nej'}</Text>
+            <View style={[styles.statCard, styles.statCardLast]}>
+              <Text style={styles.statValue}>{avatarUrl ? 'Ja' : 'Nej'}</Text>
               <Text style={styles.statLabel}>Profilbild</Text>
             </View>
           </View>
 
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Om mig</Text>
-            <Text style={styles.bodyText}>
-              {bio || 'Skriv något kort om dig själv så andra får en bättre känsla av vem du är.'}
-            </Text>
-          </View>
-
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Jag vill matcha med</Text>
-            <Text style={styles.bodyText}>{minAge}–{maxAge} år</Text>
-          </View>
-
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Aktiviteter</Text>
-            <View style={styles.chipsWrap}>
-              {selectedActivities.length ? (
-                selectedActivities.map((item) => (
-                  <View key={`selected-${item}`} style={[styles.chip, styles.chipActive]}>
-                    <Text style={[styles.chipText, styles.chipTextActive]}>{item}</Text>
-                  </View>
-                ))
-              ) : (
-                <Text style={styles.mutedText}>Inga aktiviteter valda ännu.</Text>
-              )}
-            </View>
-          </View>
-
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Konto</Text>
-            {!!email && <Text style={styles.accountEmail}>{email}</Text>}
-
-            <View style={styles.accountRow}>
-              <TouchableOpacity style={styles.secondaryButton} onPress={switchAccount}>
-                <Text style={styles.secondaryButtonText}>Byt konto</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.dangerButton} onPress={logout}>
-                <Text style={styles.dangerButtonText}>Logga ut</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </>
-      ) : (
-        <>
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Grunduppgifter</Text>
-
-            <Text style={styles.fieldLabel}>Namn</Text>
-            <TextInput
-              value={name}
-              onChangeText={setName}
-              placeholder="Ditt namn"
-              placeholderTextColor="#8A97B8"
-              style={styles.input}
-            />
-
-            <Text style={styles.fieldLabel}>Plats</Text>
-            <TextInput
-              value={city}
-              onChangeText={setCity}
-              placeholder="Din stad"
-              placeholderTextColor="#8A97B8"
-              style={styles.input}
-            />
-
-            <Text style={styles.fieldLabel}>Ålder</Text>
-            <TextInput
-              value={age}
-              onChangeText={setAge}
-              placeholder="Din ålder"
-              placeholderTextColor="#8A97B8"
-              keyboardType="number-pad"
-              style={styles.input}
-            />
-
-            <Text style={styles.fieldLabel}>Om mig</Text>
-            <TextInput
-              value={bio}
-              onChangeText={setBio}
-              placeholder="Skriv kort om dig själv"
-              placeholderTextColor="#8A97B8"
-              multiline
-              textAlignVertical="top"
-              style={[styles.input, styles.textArea]}
-            />
-          </View>
-
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Åldersfilter för matchning</Text>
-            <Text style={styles.mutedText}>Välj vilka åldrar du vill kunna matcha med.</Text>
-
-            <View style={styles.ageRow}>
-              <View style={styles.ageCol}>
-                <Text style={styles.fieldLabel}>Min ålder</Text>
-                <TextInput
-                  value={minAge}
-                  onChangeText={setMinAge}
-                  placeholder="18"
-                  placeholderTextColor="#8A97B8"
-                  keyboardType="number-pad"
-                  style={styles.input}
-                />
+          {!isEditing ? (
+            <>
+              <View style={styles.card}>
+                <Text style={styles.sectionEyebrow}>VERIFIERING</Text>
+                <Text style={styles.sectionTitle}>BankID-status</Text>
+                <Text style={styles.bodyText}>
+                  {isBankIdVerified
+                    ? 'Din profil är BankID-verifierad och du kan använda funktioner som kräver verifiering.'
+                    : 'Din profil är inte BankID-verifierad ännu. Volontäransökan kräver BankID-verifiering.'}
+                </Text>
               </View>
 
-              <View style={styles.ageCol}>
-                <Text style={styles.fieldLabel}>Max ålder</Text>
-                <TextInput
-                  value={maxAge}
-                  onChangeText={setMaxAge}
-                  placeholder="99"
-                  placeholderTextColor="#8A97B8"
-                  keyboardType="number-pad"
-                  style={styles.input}
-                />
+              <View style={styles.card}>
+                <Text style={styles.sectionEyebrow}>OM MIG</Text>
+                <Text style={styles.sectionTitle}>Det här ser andra</Text>
+                <Text style={styles.bodyText}>
+                  {bio ||
+                    'Skriv något kort om dig själv så att andra får en bättre känsla av vem du är.'}
+                </Text>
               </View>
-            </View>
-          </View>
 
-          <View style={styles.card}>
-            <View style={styles.activitiesHeader}>
-              <Text style={styles.sectionTitle}>Välj aktiviteter</Text>
-              <View style={styles.blueBadge}>
-                <Text style={styles.blueBadgeText}>{selectedActivities.length}/{MAX_ACTIVITIES}</Text>
+              <View style={styles.card}>
+                <Text style={styles.sectionEyebrow}>MATCHNING</Text>
+                <Text style={styles.sectionTitle}>Jag vill matcha med</Text>
+                <Text style={styles.matchingText}>
+                  {minAge}–{maxAge} år
+                </Text>
               </View>
-            </View>
 
-            {ACTIVITY_CATEGORIES.map((category) => (
-              <View key={category.title} style={styles.categoryCard}>
-                <View style={styles.categoryTitleRow}>
-                  <Text style={styles.categoryEmoji}>{category.emoji}</Text>
-                  <Text style={styles.categoryTitle}>{category.title}</Text>
-                </View>
+              <View style={styles.card}>
+                <Text style={styles.sectionEyebrow}>INTRESSEN</Text>
+                <Text style={styles.sectionTitle}>Valda aktiviteter</Text>
 
                 <View style={styles.chipsWrap}>
-                  {category.items.map((item) => {
-                    const active = selectedActivities.includes(item);
-
-                    return (
-                      <TouchableOpacity
-                        key={`${category.title}-${item}`}
-                        onPress={() => toggleActivity(item)}
-                        style={[styles.chip, active && styles.chipActive]}
-                      >
-                        <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                          {item}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
+                  {visibleActivities.length ? (
+                    <>
+                      {visibleActivities.map((item) => (
+                        <View key={item} style={[styles.chip, styles.chipActive]}>
+                          <Text style={[styles.chipText, styles.chipTextActive]}>{item}</Text>
+                        </View>
+                      ))}
+                      {hiddenActivities > 0 ? (
+                        <View style={styles.moreChip}>
+                          <Text style={styles.moreChipText}>+{hiddenActivities} fler</Text>
+                        </View>
+                      ) : null}
+                    </>
+                  ) : (
+                    <Text style={styles.mutedText}>Inga aktiviteter valda ännu.</Text>
+                  )}
                 </View>
               </View>
-            ))}
-          </View>
 
-          <TouchableOpacity style={styles.saveButton} onPress={saveProfile} disabled={saving}>
-            {saving ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <Text style={styles.saveButtonText}>Spara ändringar</Text>
-            )}
-          </TouchableOpacity>
-        </>
-      )}
-    </ScrollView>
+              <View style={styles.card}>
+                <Text style={styles.sectionEyebrow}>VOLONTÄRPROGRAM</Text>
+                <Text style={styles.sectionTitle}>Stötta andra</Text>
+                <Text style={styles.bodyText}>
+                  Öppna volontärprogrammet för att se aktiva volontärer eller skicka in en ansökan.
+                </Text>
+
+                <TouchableOpacity
+                  style={[styles.primaryButton, { marginTop: 16, marginBottom: 0 }]}
+                  onPress={() => router.push('/volunteers')}
+                >
+                  <Text style={styles.primaryButtonText}>Öppna volontärer</Text>
+                </TouchableOpacity>
+              </View>
+
+              {isAdmin ? (
+                <View style={styles.card}>
+                  <Text style={styles.sectionEyebrow}>ADMIN</Text>
+                  <Text style={styles.sectionTitle}>Moderering</Text>
+                  <Text style={styles.bodyText}>
+                    Du har adminåtkomst. Härifrån kan du öppna rapportöversikten.
+                  </Text>
+
+                  <TouchableOpacity
+                    style={[styles.adminButton, { marginTop: 16 }]}
+                    onPress={() => router.push('/admin/reports')}
+                  >
+                    <Text style={styles.adminButtonText}>🛡 Öppna admin / rapporter</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.primaryButton, { marginTop: 12, marginBottom: 0 }]}
+                    onPress={() => router.push('/admin/volunteers')}
+                  >
+                    <Text style={styles.primaryButtonText}>💚 Öppna admin / volontärer</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+
+              <View style={styles.card}>
+                <Text style={styles.sectionEyebrow}>KONTO</Text>
+                <Text style={styles.sectionTitle}>Inloggning och konto</Text>
+
+                <View style={styles.accountActions}>
+                  <TouchableOpacity
+                    style={[styles.accountButton, styles.accountNeutral]}
+                    onPress={switchAccount}
+                  >
+                    <Text style={styles.accountNeutralText}>Byt konto</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.accountButton, styles.accountDanger, styles.accountButtonLast]}
+                    onPress={logout}
+                  >
+                    <Text style={styles.accountDangerText}>Logga ut</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <View style={[styles.card, styles.deleteCard]}>
+                <Text style={styles.sectionEyebrow}>FAROZON</Text>
+                <Text style={styles.sectionTitle}>Ta bort konto</Text>
+                <Text style={styles.bodyText}>
+                  Det här tar bort ditt konto permanent. Åtgärden går inte att ångra.
+                </Text>
+
+                <TouchableOpacity
+                  style={[styles.deleteButton, { marginTop: 16 }]}
+                  onPress={openDeleteAccountModal}
+                >
+                  <Text style={styles.deleteButtonText}>Ta bort konto permanent</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          ) : (
+            <>
+              <View style={styles.card}>
+                <Text style={styles.sectionEyebrow}>REDIGERA</Text>
+                <Text style={styles.sectionTitle}>Grunduppgifter</Text>
+
+                <Text style={styles.fieldLabel}>Namn</Text>
+                <TextInput
+                  value={name}
+                  onChangeText={setName}
+                  placeholder="Ditt namn"
+                  placeholderTextColor="#8A97B8"
+                  style={styles.input}
+                />
+
+                <Text style={styles.fieldLabel}>Plats</Text>
+                <TextInput
+                  value={city}
+                  onChangeText={setCity}
+                  placeholder="Din stad"
+                  placeholderTextColor="#8A97B8"
+                  style={styles.input}
+                />
+
+                <Text style={styles.fieldLabel}>Ålder</Text>
+                <TextInput
+                  value={age}
+                  onChangeText={setAge}
+                  placeholder="Din ålder"
+                  placeholderTextColor="#8A97B8"
+                  keyboardType="number-pad"
+                  style={styles.input}
+                />
+
+                <Text style={styles.fieldLabel}>Om mig</Text>
+                <TextInput
+                  value={bio}
+                  onChangeText={setBio}
+                  placeholder="Skriv kort om dig själv"
+                  placeholderTextColor="#8A97B8"
+                  multiline
+                  textAlignVertical="top"
+                  style={[styles.input, styles.textArea]}
+                />
+              </View>
+
+              <View style={styles.card}>
+                <Text style={styles.sectionEyebrow}>FILTER</Text>
+                <Text style={styles.sectionTitle}>Åldersfilter för matchning</Text>
+                <Text style={styles.helperText}>Välj vilka åldrar du vill kunna matcha med.</Text>
+
+                <View style={[styles.editRow, { flexDirection: isTablet ? 'row' : 'column' }]}>
+                  <View style={styles.editCol}>
+                    <Text style={styles.fieldLabel}>Min ålder</Text>
+                    <TextInput
+                      value={minAge}
+                      onChangeText={setMinAge}
+                      placeholder="18"
+                      placeholderTextColor="#8A97B8"
+                      keyboardType="number-pad"
+                      style={styles.input}
+                    />
+                  </View>
+
+                  <View style={[styles.editCol, styles.editColLast]}>
+                    <Text style={styles.fieldLabel}>Max ålder</Text>
+                    <TextInput
+                      value={maxAge}
+                      onChangeText={setMaxAge}
+                      placeholder="99"
+                      placeholderTextColor="#8A97B8"
+                      keyboardType="number-pad"
+                      style={styles.input}
+                    />
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.card}>
+                <View style={styles.activitiesHeader}>
+                  <View>
+                    <Text style={styles.sectionEyebrow}>INTRESSEN</Text>
+                    <Text style={styles.sectionTitle}>Välj aktiviteter</Text>
+                  </View>
+
+                  <View style={styles.counterBadge}>
+                    <Text style={styles.counterBadgeText}>
+                      {selectedActivities.length}/{MAX_ACTIVITIES}
+                    </Text>
+                  </View>
+                </View>
+
+                {ACTIVITY_CATEGORIES.map((category) => (
+                  <View key={category.title} style={styles.categoryCard}>
+                    <View style={styles.categoryTitleRow}>
+                      <Text style={styles.categoryEmoji}>{category.emoji}</Text>
+                      <Text style={styles.categoryTitle}>{category.title}</Text>
+                    </View>
+
+                    <View style={styles.chipsWrap}>
+                      {category.items.map((item) => {
+                        const active = selectedActivities.includes(item);
+
+                        return (
+                          <TouchableOpacity
+                            key={`${category.title}-${item}`}
+                            onPress={() => toggleActivity(item)}
+                            style={[styles.chip, active && styles.chipActive]}
+                          >
+                            <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                              {item}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ))}
+              </View>
+
+              <TouchableOpacity style={styles.saveButton} onPress={saveProfile} disabled={saving}>
+                {saving ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.saveButtonText}>Spara ändringar</Text>
+                )}
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+      </ScrollView>
+
+      <Modal
+        visible={deleteModalVisible}
+        transparent
+        animationType="slide"
+        presentationStyle="overFullScreen"
+        onRequestClose={() => {
+          if (!deletingAccount) {
+            setDeleteModalVisible(false);
+            setDeleteConfirmValue('');
+          }
+        }}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalKeyboardWrap}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
+        >
+          <Pressable
+            style={styles.modalOverlay}
+            onPress={() => {
+              if (deletingAccount) return;
+              setDeleteModalVisible(false);
+              setDeleteConfirmValue('');
+            }}
+          >
+            <Pressable style={styles.deleteModalSheet} onPress={() => {}}>
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.deleteModalContent}
+              >
+                <Text style={styles.deleteModalTitle}>Ta bort konto</Text>
+
+                <Text style={styles.deleteModalText}>
+                  Det här raderar ditt konto permanent. Skriv{' '}
+                  <Text style={styles.deleteModalStrong}>{DELETE_CONFIRM_TEXT}</Text> för att
+                  fortsätta.
+                </Text>
+
+                <TextInput
+                  value={deleteConfirmValue}
+                  onChangeText={setDeleteConfirmValue}
+                  placeholder={`Skriv ${DELETE_CONFIRM_TEXT}`}
+                  placeholderTextColor="#9AA6C1"
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  editable={!deletingAccount}
+                  returnKeyType="done"
+                  style={styles.deleteInput}
+                />
+
+                <View style={styles.deleteModalActions}>
+                  <Pressable
+                    style={[styles.deleteCancelButton, deletingAccount && styles.disabledButton]}
+                    onPress={() => {
+                      if (deletingAccount) return;
+                      setDeleteModalVisible(false);
+                      setDeleteConfirmValue('');
+                    }}
+                    disabled={deletingAccount}
+                  >
+                    <Text style={styles.deleteCancelButtonText}>Avbryt</Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={[
+                      styles.deleteConfirmButton,
+                      (!canConfirmDelete || deletingAccount) && styles.disabledButton,
+                    ]}
+                    onPress={deleteAccount}
+                    disabled={!canConfirmDelete || deletingAccount}
+                  >
+                    {deletingAccount ? (
+                      <ActivityIndicator color="#FFFFFF" />
+                    ) : (
+                      <Text style={styles.deleteConfirmButtonText}>Radera konto</Text>
+                    )}
+                  </Pressable>
+                </View>
+              </ScrollView>
+            </Pressable>
+          </Pressable>
+        </KeyboardAvoidingView>
+      </Modal>
+    </>
   );
 }
 
@@ -673,9 +992,38 @@ const styles = StyleSheet.create({
     backgroundColor: '#F4F6FB',
   },
 
-  content: {
-    padding: 20,
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
     paddingBottom: 40,
+  },
+
+  pageWrap: {
+    width: '100%',
+    maxWidth: 820,
+    alignSelf: 'center',
+  },
+
+  pageWrapWide: {
+    maxWidth: 860,
+  },
+
+  pageHeader: {
+    marginBottom: 14,
+  },
+
+  pageTitle: {
+    fontSize: 34,
+    lineHeight: 40,
+    fontWeight: '800',
+    color: '#20325E',
+    marginBottom: 6,
+  },
+
+  pageSubtitle: {
+    fontSize: 16,
+    lineHeight: 24,
+    color: '#7A8AAA',
   },
 
   loadingWrap: {
@@ -692,63 +1040,47 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  pageTitle: {
-    fontSize: 34,
-    lineHeight: 40,
-    fontWeight: '800',
-    color: '#20325E',
-    marginBottom: 8,
-  },
-
-  pageSubtitle: {
-    fontSize: 16,
-    lineHeight: 24,
-    color: '#7A8AAA',
-    marginBottom: 16,
-  },
-
   heroCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 30,
-    padding: 24,
-    marginBottom: 16,
+    borderRadius: 28,
+    padding: 22,
+    marginBottom: 14,
     borderWidth: 1,
     borderColor: '#E6EAF4',
-    alignItems: 'center',
+    shadowColor: '#20325E',
+    shadowOpacity: Platform.OS === 'web' ? 0.05 : 0.08,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 3,
   },
 
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 28,
-    padding: 20,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#E6EAF4',
+  heroTop: {
+    marginBottom: 18,
   },
 
   avatarButton: {
-    width: 136,
-    height: 136,
-    borderRadius: 68,
+    width: 122,
+    height: 122,
+    borderRadius: 61,
+    position: 'relative',
     alignItems: 'center',
     justifyContent: 'center',
-    position: 'relative',
-    marginBottom: 16,
+    marginBottom: 14,
   },
 
   avatarImage: {
-    width: 136,
-    height: 136,
-    borderRadius: 68,
+    width: 122,
+    height: 122,
+    borderRadius: 61,
     borderWidth: 4,
     borderColor: '#1C5E52',
   },
 
   avatarFallback: {
-    width: 136,
-    height: 136,
-    borderRadius: 68,
-    backgroundColor: '#F2F4FA',
+    width: 122,
+    height: 122,
+    borderRadius: 61,
+    backgroundColor: '#F2F5FB',
     borderWidth: 4,
     borderColor: '#1C5E52',
     alignItems: 'center',
@@ -759,9 +1091,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 4,
     bottom: 4,
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: '#1C5E52',
     alignItems: 'center',
     justifyContent: 'center',
@@ -769,114 +1101,162 @@ const styles = StyleSheet.create({
     borderColor: '#FFFFFF',
   },
 
+  heroTextWrap: {
+    flex: 1,
+    alignItems: 'center',
+  },
+
+  heroEyebrow: {
+    fontSize: 11,
+    lineHeight: 14,
+    letterSpacing: 1.4,
+    fontWeight: '800',
+    color: '#7A8AAA',
+    marginBottom: 8,
+  },
+
   profileName: {
     fontSize: 32,
     lineHeight: 38,
     fontWeight: '800',
     color: '#20325E',
-    marginBottom: 8,
+    marginBottom: 4,
+    textAlign: 'center',
   },
 
   profileMeta: {
     fontSize: 16,
     lineHeight: 22,
     color: '#7A8AAA',
-    marginBottom: 14,
+    marginBottom: 12,
     textAlign: 'center',
   },
 
-  pillRow: {
+  heroPillsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
     justifyContent: 'center',
-    marginBottom: 16,
+    marginBottom: 10,
   },
 
-  coolPill: {
+  heroPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
     backgroundColor: '#EEF4FF',
     borderWidth: 1,
     borderColor: '#D8E4FA',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginRight: 8,
+    marginBottom: 8,
   },
 
-  coolPillText: {
+  heroPillText: {
     color: '#20325E',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
+    marginLeft: 6,
   },
 
-  heroButtons: {
-    width: '100%',
-    gap: 10,
+  emailText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#8A97B8',
+  },
+
+  heroActions: {
+    marginTop: 2,
+  },
+
+  heroActionHalf: {
+    flex: 1,
   },
 
   primaryButton: {
-    minHeight: 56,
-    borderRadius: 18,
+    minHeight: 52,
+    borderRadius: 16,
     backgroundColor: '#1C5E52',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 16,
+    marginBottom: 10,
   },
 
   primaryButtonText: {
     color: '#FFFFFF',
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '800',
   },
 
-  secondaryCompactButton: {
+  secondaryButtonStrong: {
     minHeight: 52,
-    borderRadius: 18,
-    backgroundColor: '#EFF3FB',
+    borderRadius: 16,
+    backgroundColor: '#F1F5FC',
     borderWidth: 1,
     borderColor: '#DCE4F3',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 16,
+    marginBottom: 10,
   },
 
-  secondaryCompactButtonText: {
+  secondaryButtonStrongText: {
     color: '#20325E',
     fontSize: 16,
     fontWeight: '800',
   },
 
+  adminButton: {
+    minHeight: 56,
+    borderRadius: 18,
+    backgroundColor: '#8F2D0A',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+
+  adminButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+
   removeAvatarText: {
-    marginTop: 12,
-    color: '#C0392B',
-    fontSize: 15,
+    marginTop: 4,
+    color: '#A15353',
+    fontSize: 14,
     fontWeight: '600',
+    textAlign: 'center',
   },
 
   statsRow: {
     flexDirection: 'row',
-    gap: 12,
-    marginBottom: 16,
+    marginBottom: 14,
   },
 
   statCard: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    borderRadius: 24,
+    borderRadius: 22,
     paddingVertical: 18,
     paddingHorizontal: 10,
-    alignItems: 'center',
     borderWidth: 1,
     borderColor: '#E6EAF4',
+    alignItems: 'center',
+    marginRight: 10,
   },
 
-  statNumber: {
-    fontSize: 20,
-    lineHeight: 26,
+  statCardLast: {
+    marginRight: 0,
+  },
+
+  statValue: {
+    fontSize: 22,
+    lineHeight: 28,
     fontWeight: '800',
     color: '#20325E',
-    marginBottom: 6,
-    textAlign: 'center',
+    marginBottom: 5,
   },
 
   statLabel: {
@@ -887,46 +1267,139 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 20,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#E6EAF4',
+    shadowColor: '#20325E',
+    shadowOpacity: Platform.OS === 'web' ? 0.03 : 0.05,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
+  },
+
+  deleteCard: {
+    borderColor: '#F2D1D1',
+    backgroundColor: '#FFF9F9',
+  },
+
+  sectionEyebrow: {
+    fontSize: 11,
+    lineHeight: 14,
+    letterSpacing: 1.2,
+    fontWeight: '800',
+    color: '#7A8AAA',
+    marginBottom: 8,
+  },
+
   sectionTitle: {
     fontSize: 28,
     lineHeight: 34,
     fontWeight: '800',
     color: '#20325E',
-    marginBottom: 14,
+    marginBottom: 10,
   },
 
   bodyText: {
-    fontSize: 18,
-    lineHeight: 30,
-    color: '#26334F',
+    fontSize: 17,
+    lineHeight: 28,
+    color: '#2C3957',
+  },
+
+  matchingText: {
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: '800',
+    color: '#20325E',
   },
 
   mutedText: {
-    fontSize: 16,
-    lineHeight: 24,
-    color: '#7A8AAA',
-  },
-
-  accountEmail: {
     fontSize: 15,
     lineHeight: 22,
     color: '#7A8AAA',
-    marginBottom: 14,
+  },
+
+  accountActions: {
+    flexDirection: 'row',
+    marginTop: 6,
+  },
+
+  accountButton: {
+    flex: 1,
+    minHeight: 54,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    marginRight: 10,
+  },
+
+  accountButtonLast: {
+    marginRight: 0,
+  },
+
+  accountNeutral: {
+    backgroundColor: '#F1F5FC',
+    borderWidth: 1,
+    borderColor: '#DCE4F3',
+  },
+
+  accountNeutralText: {
+    color: '#20325E',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+
+  accountDanger: {
+    backgroundColor: '#FFF4F4',
+    borderWidth: 1,
+    borderColor: '#F2D1D1',
+  },
+
+  accountDangerText: {
+    color: '#BB4C4C',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+
+  deleteButton: {
+    minHeight: 56,
+    borderRadius: 18,
+    backgroundColor: '#C93C3C',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+
+  deleteButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900',
   },
 
   fieldLabel: {
-    fontSize: 16,
-    lineHeight: 22,
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: '700',
     color: '#20325E',
     marginBottom: 8,
-    marginTop: 12,
+    marginTop: 10,
+  },
+
+  helperText: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: '#7A8AAA',
+    marginBottom: 6,
   },
 
   input: {
-    minHeight: 62,
-    borderRadius: 18,
-    backgroundColor: '#F2F4FA',
+    minHeight: 58,
+    borderRadius: 16,
+    backgroundColor: '#F2F5FB',
     borderWidth: 1,
     borderColor: '#E0E6F2',
     paddingHorizontal: 16,
@@ -935,38 +1408,41 @@ const styles = StyleSheet.create({
   },
 
   textArea: {
-    minHeight: 130,
+    minHeight: 126,
     paddingTop: 16,
     paddingBottom: 16,
   },
 
-  ageRow: {
-    flexDirection: 'row',
-    gap: 12,
+  editRow: {
+    marginTop: 2,
   },
 
-  ageCol: {
+  editCol: {
     flex: 1,
+    marginRight: 10,
+  },
+
+  editColLast: {
+    marginRight: 0,
   },
 
   activitiesHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
-    gap: 12,
     marginBottom: 8,
   },
 
-  blueBadge: {
+  counterBadge: {
     backgroundColor: '#EEF4FF',
     borderRadius: 999,
     paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingVertical: 8,
     borderWidth: 1,
     borderColor: '#D8E4FA',
   },
 
-  blueBadgeText: {
+  counterBadgeText: {
     color: '#20325E',
     fontSize: 14,
     fontWeight: '800',
@@ -974,11 +1450,11 @@ const styles = StyleSheet.create({
 
   categoryCard: {
     backgroundColor: '#FBFCFF',
-    borderRadius: 24,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: '#E6EAF4',
     padding: 16,
-    marginTop: 12,
+    marginTop: 10,
   },
 
   categoryTitleRow: {
@@ -988,13 +1464,13 @@ const styles = StyleSheet.create({
   },
 
   categoryEmoji: {
-    fontSize: 24,
+    fontSize: 22,
     marginRight: 10,
   },
 
   categoryTitle: {
-    fontSize: 20,
-    lineHeight: 26,
+    fontSize: 19,
+    lineHeight: 24,
     fontWeight: '800',
     color: '#20325E',
   },
@@ -1002,7 +1478,6 @@ const styles = StyleSheet.create({
   chipsWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
   },
 
   chip: {
@@ -1010,8 +1485,10 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: '#D7DFEF',
     borderRadius: 999,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    marginRight: 10,
+    marginBottom: 10,
   },
 
   chipActive: {
@@ -1021,7 +1498,7 @@ const styles = StyleSheet.create({
 
   chipText: {
     color: '#20325E',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
   },
 
@@ -1029,61 +1506,135 @@ const styles = StyleSheet.create({
     color: '#1C5E52',
   },
 
+  moreChip: {
+    backgroundColor: '#EEF4FF',
+    borderWidth: 1,
+    borderColor: '#D8E4FA',
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    marginRight: 10,
+    marginBottom: 10,
+  },
+
+  moreChipText: {
+    color: '#20325E',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+
   saveButton: {
     backgroundColor: '#1C5E52',
-    minHeight: 64,
-    borderRadius: 20,
+    minHeight: 60,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
+    marginBottom: 14,
   },
 
   saveButtonText: {
     color: '#FFFFFF',
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '800',
   },
 
-  accountRow: {
-    flexDirection: 'row',
-    gap: 12,
+  modalKeyboardWrap: {
+    flex: 1,
+    justifyContent: 'flex-end',
   },
 
-  secondaryButton: {
+  modalOverlay: {
     flex: 1,
-    minHeight: 64,
-    backgroundColor: '#EFF3FB',
-    borderRadius: 20,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(24, 36, 65, 0.28)',
+    paddingHorizontal: 10,
+    paddingBottom: Platform.OS === 'ios' ? 10 : 8,
+  },
+
+  deleteModalSheet: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    borderWidth: 1,
+    borderColor: '#E6EAF4',
+    maxHeight: '72%',
+  },
+
+  deleteModalContent: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: Platform.OS === 'ios' ? 20 : 16,
+  },
+
+  deleteModalTitle: {
+    fontSize: 24,
+    fontWeight: '900',
+    color: '#20325E',
+    marginBottom: 10,
+  },
+
+  deleteModalText: {
+    fontSize: 15,
+    lineHeight: 24,
+    color: '#5B6785',
+    marginBottom: 14,
+  },
+
+  deleteModalStrong: {
+    color: '#BB3B3B',
+    fontWeight: '900',
+  },
+
+  deleteInput: {
+    minHeight: 54,
+    borderRadius: 16,
+    backgroundColor: '#FFF7F7',
+    borderWidth: 1,
+    borderColor: '#F1D1D1',
+    paddingHorizontal: 14,
+    fontSize: 16,
+    color: '#20325E',
+    marginBottom: 16,
+  },
+
+  deleteModalActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+
+  deleteCancelButton: {
+    flex: 1,
+    minHeight: 52,
+    borderRadius: 16,
+    backgroundColor: '#F1F5FC',
     borderWidth: 1,
     borderColor: '#DCE4F3',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 12,
   },
 
-  secondaryButtonText: {
+  deleteCancelButtonText: {
     color: '#20325E',
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: '800',
-    textAlign: 'center',
   },
 
-  dangerButton: {
+  deleteConfirmButton: {
     flex: 1,
-    minHeight: 64,
-    backgroundColor: '#FBECEC',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#F2CACA',
+    minHeight: 52,
+    borderRadius: 16,
+    backgroundColor: '#C93C3C',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 12,
   },
 
-  dangerButtonText: {
-    color: '#C0392B',
-    fontSize: 18,
-    fontWeight: '800',
-    textAlign: 'center',
+  deleteConfirmButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+
+  disabledButton: {
+    opacity: 0.55,
   },
 });

@@ -1,22 +1,96 @@
-import React, { useEffect } from 'react';
-import { Stack } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { View, ActivityIndicator } from 'react-native';
+import { supabase } from '../src/lib/supabase';
 import { startPushRegistration } from '../src/lib/push';
+import type { Session } from '@supabase/supabase-js';
 
 export const unstable_settings = {
   initialRouteName: '(tabs)',
 };
 
-export default function RootLayout() {
+function AuthGuard({
+  session,
+  loading,
+}: {
+  session: Session | null;
+  loading: boolean;
+}) {
+  const segments = useSegments();
+  const router = useRouter();
+
   useEffect(() => {
-    const cleanup = startPushRegistration();
-    return cleanup;
+    if (loading) return;
+    if (!segments.length) return;
+
+    const inAuthScreen =
+      segments[0] === 'login' || segments[0] === 'verify';
+
+    if (!session && !inAuthScreen) {
+      router.replace('/login');
+    } else if (session && inAuthScreen) {
+      router.replace('/(tabs)');
+    }
+  }, [session, loading, segments, router]);
+
+  return null;
+}
+
+export default function RootLayout() {
+  const [session, setSession] = useState<Session | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setLoading(false);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setLoading(false);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
+
+  useEffect(() => {
+    let cleanup: void | (() => void);
+
+    if (session) {
+      cleanup = startPushRegistration();
+    }
+
+    return () => {
+      if (typeof cleanup === 'function') cleanup();
+    };
+  }, [session]);
+
+  if (loading) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: '#020f3a',
+          justifyContent: 'center',
+          alignItems: 'center',
+        }}
+      >
+        <ActivityIndicator size="large" color="#1C5E52" />
+      </View>
+    );
+  }
 
   return (
     <SafeAreaProvider>
       <StatusBar style="dark" />
+      <AuthGuard session={session} loading={loading} />
       <Stack screenOptions={{ headerShown: false }} />
     </SafeAreaProvider>
   );

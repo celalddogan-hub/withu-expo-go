@@ -1,21 +1,19 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { withuColors } from '../../src/theme/withuTheme';
 
 export default function TabsLayout() {
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: '#1C5E52',
-        tabBarInactiveTintColor: '#7A8AAA',
+        tabBarActiveTintColor: withuColors.teal,
+        tabBarInactiveTintColor: '#7A8499',
         tabBarStyle: {
           height: 88,
-          paddingTop: 10,
-          paddingBottom: 22,
-          backgroundColor: '#FFFFFF',
-          borderTopColor: '#DDE2EF',
-          borderTopWidth: 1,
+          paddingTop: 8,
+          paddingBottom: 18,
         },
         tabBarLabelStyle: {
           fontSize: 12,
@@ -28,7 +26,7 @@ export default function TabsLayout() {
         options={{
           title: 'Hitta',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="search" size={size} color={color} />
+            <Ionicons name="search-outline" size={size} color={color} />
           ),
         }}
       />
@@ -38,7 +36,7 @@ export default function TabsLayout() {
         options={{
           title: 'Nu',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="flash" size={size} color={color} />
+            <Ionicons name="flash-outline" size={size} color={color} />
           ),
         }}
       />
@@ -58,7 +56,7 @@ export default function TabsLayout() {
         options={{
           title: 'Chatt',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="chatbubble-ellipses-outline" size={size} color={color} />
+            <Ionicons name="chatbubble-outline" size={size} color={color} />
           ),
         }}
       />
@@ -68,7 +66,7 @@ export default function TabsLayout() {
         options={{
           title: 'Tankar',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="ellipsis-horizontal-circle-outline" size={size} color={color} />
+            <Ionicons name="sparkles-outline" size={size} color={color} />
           ),
         }}
       />

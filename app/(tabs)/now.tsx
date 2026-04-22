@@ -11,7 +11,12 @@ import {
   View,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
 import { supabase } from '../../src/lib/supabase';
+import {
+  ensureMatchedConversation,
+  getMatchedTargetIds,
+} from '../../src/lib/matchChat';
 import {
   withuColors,
   withuRadius,
@@ -68,6 +73,12 @@ type LiveCard = {
   city: string | null;
   expires_at: string;
   profile: ProfileRow | null;
+  isMatched: boolean;
+};
+
+type BlockedRow = {
+  blockerad_av: string | null;
+  blockerad: string | null;
 };
 
 function getAvatarEmoji(activity?: string, fallback?: string | null) {
@@ -122,22 +133,45 @@ function getMinutesLeft(expiresAt: string) {
   return Math.max(0, Math.ceil(diff / 60000));
 }
 
+async function loadBlockedIds(currentUserId: string) {
+  const { data, error } = await supabase
+    .from('blocked_users')
+    .select('blockerad_av, blockerad')
+    .or(`blockerad_av.eq.${currentUserId},blockerad.eq.${currentUserId}`);
+
+  if (error) throw error;
+
+  return new Set(
+    ((data ?? []) as BlockedRow[])
+      .map((row) =>
+        row.blockerad_av === currentUserId ? row.blockerad : row.blockerad_av
+      )
+      .filter(Boolean) as string[]
+  );
+}
+
 export default function NowScreen() {
+  const router = useRouter();
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deactivating, setDeactivating] = useState(false);
+  const [joiningUserId, setJoiningUserId] = useState('');
 
   const [currentUserId, setCurrentUserId] = useState('');
   const [ownProfile, setOwnProfile] = useState<OwnProfile | null>(null);
   const [myNowStatus, setMyNowStatus] = useState<NowStatusRow | null>(null);
   const [liveCards, setLiveCards] = useState<LiveCard[]>([]);
+  const [matchedIds, setMatchedIds] = useState<string[]>([]);
 
   const [selectedActivity, setSelectedActivity] = useState('');
   const [message, setMessage] = useState('');
 
   const [errorText, setErrorText] = useState('');
   const [missingProfileReason, setMissingProfileReason] = useState('');
+
+  const matchedIdSet = useMemo(() => new Set(matchedIds), [matchedIds]);
 
   const availableActivities = useMemo(() => {
     return ownProfile?.activities ?? [];
@@ -159,20 +193,12 @@ export default function NowScreen() {
 
       setCurrentUserId(user.id);
 
-      const { data: blockedRows, error: blockedError } = await supabase
-        .from('blocked_users')
-        .select('blockerad_av, blockerad')
-        .or(`blockerad_av.eq.${user.id},blockerad.eq.${user.id}`);
+      const [matchedSet, blockedIds] = await Promise.all([
+        getMatchedTargetIds(user.id),
+        loadBlockedIds(user.id),
+      ]);
 
-      if (blockedError) throw blockedError;
-
-      const blockedIds = new Set(
-        (blockedRows ?? [])
-          .map((row: any) =>
-            row.blockerad_av === user.id ? row.blockerad : row.blockerad_av
-          )
-          .filter(Boolean)
-      );
+      setMatchedIds([...matchedSet]);
 
       const { data: ownData, error: ownError } = await supabase
         .from('profiles')
@@ -269,6 +295,7 @@ export default function NowScreen() {
           city: item.city,
           expires_at: item.expires_at,
           profile: profileMap.get(item.user_id) ?? null,
+          isMatched: matchedSet.has(item.user_id),
         }))
         .filter((item) => !!item.profile);
 
@@ -319,6 +346,7 @@ export default function NowScreen() {
         city: ownProfile.city || null,
         is_active: true,
         expires_at: expiresAt,
+        updated_at: new Date().toISOString(),
       };
 
       const { error } = await supabase
@@ -347,6 +375,7 @@ export default function NowScreen() {
         .update({
           is_active: false,
           expires_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
         })
         .eq('user_id', currentUserId);
 
@@ -358,6 +387,44 @@ export default function NowScreen() {
       Alert.alert('Kunde inte avsluta', error?.message || 'Något gick fel.');
     } finally {
       setDeactivating(false);
+    }
+  };
+
+  const handleJoinNow = async (item: LiveCard) => {
+    if (!currentUserId || joiningUserId) return;
+
+    const blockedIds = await loadBlockedIds(currentUserId);
+
+    if (blockedIds.has(item.user_id)) {
+      Alert.alert('Inte tillgänglig', 'Den här personen är inte tillgänglig längre.');
+      await loadNowData();
+      return;
+    }
+
+    if (!matchedIdSet.has(item.user_id)) {
+      Alert.alert('Matcha först', 'Du behöver matcha med personen i Hitta först.');
+      return;
+    }
+
+    try {
+      setJoiningUserId(item.user_id);
+
+      const introMessage = `Hej! Jag såg att du är live i Nu för ${item.activity}. Jag är med om du fortfarande vill 👋`;
+
+      const { conversationKey } = await ensureMatchedConversation(
+        currentUserId,
+        item.user_id,
+        introMessage
+      );
+
+      router.push({
+        pathname: '/chat/[conversationKey]',
+        params: { conversationKey },
+      });
+    } catch (error: any) {
+      Alert.alert('Kunde inte öppna chatten', error?.message || 'Något gick fel.');
+    } finally {
+      setJoiningUserId('');
     }
   };
 
@@ -445,7 +512,7 @@ export default function NowScreen() {
           <View style={styles.heroBlock}>
             <Text style={styles.heroTitle}>Nu</Text>
             <Text style={styles.heroSubtitle}>
-              Dela vad du vill göra just nu i 60 minuter. Andra kan hitta dig snabbare när ni söker samma sak.
+              Dela vad du vill göra just nu i 60 minuter. Bara personer du redan matchat med kan hoppa in direkt i chatten.
             </Text>
           </View>
 
@@ -453,7 +520,7 @@ export default function NowScreen() {
             <WithUSectionLabel>Jag är här nu</WithUSectionLabel>
             <WithUTitle style={styles.cardTitle}>Dela tillgänglighet i 60 minuter</WithUTitle>
             <WithUSubtitle>
-              Välj aktivitet och skriv gärna ett kort meddelande. Det här sparas i Supabase och visas live för andra.
+              Välj aktivitet och skriv gärna ett kort meddelande.
             </WithUSubtitle>
 
             <View style={styles.activitiesWrap}>
@@ -551,7 +618,7 @@ export default function NowScreen() {
             </View>
 
             <WithUSubtitle style={styles.liveSubtitle}>
-              Första versionen använder stad och aktivitet för att visa relevanta personer.
+              Alla kan se vem som är aktiv. Bara matcher kan trycka “Jag är med!”.
             </WithUSubtitle>
 
             {liveCards.length === 0 ? (
@@ -596,6 +663,27 @@ export default function NowScreen() {
                       <Text style={styles.liveTime}>
                         Aktiv i cirka {getMinutesLeft(item.expires_at)} min till
                       </Text>
+
+                      <View style={styles.cardActionWrap}>
+                        {item.isMatched ? (
+                          <Pressable
+                            style={[
+                              styles.joinButton,
+                              joiningUserId === item.user_id && styles.buttonDisabled,
+                            ]}
+                            onPress={() => handleJoinNow(item)}
+                            disabled={joiningUserId === item.user_id}
+                          >
+                            <Text style={styles.joinButtonText}>
+                              {joiningUserId === item.user_id ? 'Öppnar...' : 'Jag är med!'}
+                            </Text>
+                          </Pressable>
+                        ) : (
+                          <View style={[styles.lockedButton, styles.buttonDisabled]}>
+                            <Text style={styles.lockedButtonText}>Matcha först på Hitta</Text>
+                          </View>
+                        )}
+                      </View>
                     </View>
                   );
                 })}
@@ -814,6 +902,38 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: withuColors.muted,
     fontWeight: '700',
+    marginBottom: 14,
+  },
+  cardActionWrap: {
+    marginTop: 2,
+  },
+  joinButton: {
+    minHeight: 52,
+    borderRadius: 999,
+    backgroundColor: withuColors.teal,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+  },
+  joinButtonText: {
+    color: withuColors.white,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  lockedButton: {
+    minHeight: 52,
+    borderRadius: 999,
+    backgroundColor: '#EEF1F7',
+    borderWidth: 1,
+    borderColor: '#D9E0EE',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+  },
+  lockedButtonText: {
+    color: '#6E7B95',
+    fontSize: 14,
+    fontWeight: '800',
   },
   stateCard: {
     backgroundColor: withuColors.white,

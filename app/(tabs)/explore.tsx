@@ -1,647 +1,2081 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 import {
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
+import { supabase } from '../../src/lib/supabase';
+import {
+  ensureMatchedConversation,
+  getMatchedTargetIds,
+} from '../../src/lib/matchChat';
+import {
+  createScopedRealtimeChannel,
+  removeChannelSafely,
+} from '../../src/lib/realtime';
+import {
+  withuColors,
+  withuRadius,
+  withuShadows,
+  withuSpacing,
+} from '../../src/theme/withuTheme';
+import {
+  WithUAvatar,
+  WithUPage,
+  WithUPrimaryButton,
+  WithUScreen,
+  WithUTopBar,
+} from '../../src/components/withu/WithUPrimitives';
 
 type ThoughtVisibility = 'anonymous' | 'nickname' | 'firstname';
+type ThoughtTalkStatus = 'pending' | 'accepted' | 'declined';
+type ThoughtFilter = 'alla' | 'matchade' | 'mina';
 
-type CommentItem = {
+type ThoughtRow = {
   id: string;
-  text: string;
-  time: string;
-};
-
-type Thought = {
-  id: string;
-  text: string;
-  time: string;
-  likes: number;
+  user_id: string;
+  text: string | null;
+  content?: string | null;
   visibility: ThoughtVisibility;
-  comments: CommentItem[];
+  is_active: boolean;
+  created_at: string;
 };
 
-const INITIAL_THOUGHTS: Thought[] = [
-  {
-    id: '1',
-    text: 'Känner mig lite ensam ikväll. Hade varit fint att bara prata med någon en stund.',
-    time: 'För 8 min sedan',
-    likes: 3,
-    visibility: 'anonymous',
-    comments: [
-      { id: 'c1', text: 'Du är inte ensam 💙', time: 'För 5 min sedan' },
-      { id: 'c2', text: 'Hoppas kvällen känns lättare snart.', time: 'För 2 min sedan' },
-    ],
-  },
-  {
-    id: '2',
-    text: 'Ny i Stockholm och försöker hitta folk att ta en kaffe med i helgen.',
-    time: 'För 24 min sedan',
-    likes: 6,
-    visibility: 'nickname',
-    comments: [
-      { id: 'c3', text: 'Jag är också ny här!', time: 'För 10 min sedan' },
-    ],
-  },
-  {
-    id: '3',
-    text: 'Pluggstress idag. Någon annan som sitter och kämpar med studier just nu?',
-    time: 'För 1 tim sedan',
-    likes: 2,
-    visibility: 'firstname',
-    comments: [],
-  },
-];
+type ThoughtCommentRow = {
+  id: string;
+  thought_id: string;
+  user_id: string;
+  text: string | null;
+  content?: string | null;
+  created_at: string;
+};
 
-function getBadgeText(visibility: ThoughtVisibility) {
-  if (visibility === 'anonymous') return '🌸 Anonym';
-  if (visibility === 'nickname') return '💙 Smeknamn';
-  return '🙂 Förnamn';
+type ThoughtReactionRow = {
+  id: string;
+  thought_id: string;
+  user_id: string;
+  reaction: string;
+  created_at: string;
+};
+
+type ThoughtTalkRequestRow = {
+  id: string;
+  thought_id: string;
+  requester_id: string;
+  owner_id: string;
+  status: ThoughtTalkStatus;
+  created_at: string;
+  updated_at: string;
+};
+
+type ProfileRow = {
+  id: string;
+  name: string | null;
+  avatar_emoji: string | null;
+  is_bankid_verified: boolean | null;
+};
+
+type BlockedRow = {
+  blockerad_av: string | null;
+  blockerad: string | null;
+};
+
+type IncomingRequest = {
+  id: string;
+  requesterId: string;
+  requesterName: string;
+  requesterEmoji: string;
+};
+
+type ThoughtCard = {
+  id: string;
+  userId: string;
+  text: string;
+  visibility: ThoughtVisibility;
+  createdAt: string;
+  timeLabel: string;
+  authorName: string;
+  authorEmoji: string;
+  badgeText: string;
+  canOpenProfile: boolean;
+  isMine: boolean;
+  isMatched: boolean;
+  isBankIdVerified: boolean;
+  likeCount: number;
+  likedByMe: boolean;
+  myReactionId: string | null;
+  comments: ThoughtCommentRow[];
+  outgoingRequestStatus: ThoughtTalkStatus | null;
+  incomingRequests: IncomingRequest[];
+};
+
+function formatRelativeTime(value: string) {
+  const diffMs = Math.max(0, Date.now() - new Date(value).getTime());
+  const minutes = Math.floor(diffMs / 60000);
+  const hours = Math.floor(diffMs / 3600000);
+  const days = Math.floor(diffMs / 86400000);
+
+  if (minutes < 1) return 'Nyss';
+  if (minutes < 60) return `För ${minutes} min sedan`;
+  if (hours < 24) return `För ${hours} tim sedan`;
+  return `För ${days} dag sedan`;
+}
+
+function firstName(name?: string | null) {
+  if (!name) return '';
+  return name.trim().split(' ')[0] || '';
+}
+
+function getSafeText(value?: string | null, fallback?: string | null) {
+  return (value ?? fallback ?? '').trim();
+}
+
+function getThoughtHeader(profile: ProfileRow | null, visibility: ThoughtVisibility) {
+  if (visibility === 'anonymous') {
+    return {
+      authorName: '',
+      authorEmoji: '🌸',
+      badgeText: '🌸 Anonym',
+      canOpenProfile: false,
+    };
+  }
+
+  if (visibility === 'nickname') {
+    return {
+      authorName: 'Medlem',
+      authorEmoji: profile?.avatar_emoji || '🙂',
+      badgeText: '💙 Smeknamn',
+      canOpenProfile: true,
+    };
+  }
+
+  return {
+    authorName: firstName(profile?.name) || 'Medlem',
+    authorEmoji: profile?.avatar_emoji || '🙂',
+    badgeText: '🙂 Förnamn',
+    canOpenProfile: true,
+  };
+}
+
+async function loadBlockedIds(currentUserId: string) {
+  const { data, error } = await supabase
+    .from('blocked_users')
+    .select('blockerad_av, blockerad')
+    .or(`blockerad_av.eq.${currentUserId},blockerad.eq.${currentUserId}`);
+
+  if (error) throw error;
+
+  return new Set(
+    ((data ?? []) as BlockedRow[])
+      .map((row) =>
+        row.blockerad_av === currentUserId ? row.blockerad : row.blockerad_av
+      )
+      .filter(Boolean) as string[]
+  );
 }
 
 export default function TankarScreen() {
-  const [thoughts, setThoughts] = useState<Thought[]>(INITIAL_THOUGHTS);
-  const [likedIds, setLikedIds] = useState<string[]>([]);
+  const router = useRouter();
+  const handledAcceptedIds = useRef<Set<string>>(new Set());
+  const requesterChannelRef = useRef<RealtimeChannel | null>(null);
+  const ownerChannelRef = useRef<RealtimeChannel | null>(null);
+
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState('');
+  const [thoughts, setThoughts] = useState<ThoughtCard[]>([]);
+  const [errorText, setErrorText] = useState('');
+
   const [composerOpen, setComposerOpen] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [draftText, setDraftText] = useState('');
   const [visibility, setVisibility] = useState<ThoughtVisibility>('anonymous');
+
+  const [selectedThoughtId, setSelectedThoughtId] = useState<string | null>(null);
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+  const [submittingCommentId, setSubmittingCommentId] = useState('');
+  const [sendingTalkId, setSendingTalkId] = useState('');
+  const [processingRequestId, setProcessingRequestId] = useState('');
+  const [activeFilter, setActiveFilter] = useState<ThoughtFilter>('alla');
 
   const remaining = useMemo(() => 500 - draftText.length, [draftText.length]);
 
-  const toggleLike = (id: string) => {
+  const selectedThought = useMemo(
+    () => thoughts.find((thought) => thought.id === selectedThoughtId) ?? null,
+    [thoughts, selectedThoughtId]
+  );
+
+  const selectedCommentDraft = selectedThoughtId
+    ? commentDrafts[selectedThoughtId] || ''
+    : '';
+
+  const filteredThoughts = useMemo(() => {
+    if (activeFilter === 'matchade') {
+      return thoughts.filter((thought) => !thought.isMine && thought.isMatched);
+    }
+
+    if (activeFilter === 'mina') {
+      return thoughts.filter((thought) => thought.isMine);
+    }
+
+    return thoughts;
+  }, [thoughts, activeFilter]);
+
+  const teardownThoughtRealtime = useCallback(async () => {
+    const requester = requesterChannelRef.current;
+    const owner = ownerChannelRef.current;
+
+    requesterChannelRef.current = null;
+    ownerChannelRef.current = null;
+
+    await Promise.all([
+      removeChannelSafely(requester),
+      removeChannelSafely(owner),
+    ]);
+  }, []);
+
+  const openPublicProfile = useCallback(
+    (userId: string, canOpenProfile: boolean) => {
+      if (!userId || !canOpenProfile) return;
+
+      router.push({
+        pathname: '/user/[userId]',
+        params: { userId },
+      });
+    },
+    [router]
+  );
+
+  const loadThoughts = useCallback(async () => {
+    try {
+      setErrorText('');
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        setErrorText('Du måste logga in för att använda Tankar.');
+        setThoughts([]);
+        return;
+      }
+
+      setCurrentUserId(user.id);
+
+      const [matchedSet, blockedIds] = await Promise.all([
+        getMatchedTargetIds(user.id),
+        loadBlockedIds(user.id),
+      ]);
+
+      const { data: thoughtData, error: thoughtsError } = await supabase
+        .from('thoughts')
+        .select('id, user_id, text, content, visibility, is_active, created_at')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
+
+      if (thoughtsError) throw thoughtsError;
+
+      const allThoughtRows = (thoughtData ?? []) as ThoughtRow[];
+      const visibleThoughtRows = allThoughtRows.filter(
+        (thought) => !blockedIds.has(thought.user_id)
+      );
+
+      if (visibleThoughtRows.length === 0) {
+        setThoughts([]);
+        return;
+      }
+
+      const visibleThoughtIds = visibleThoughtRows.map((row) => row.id);
+
+      const [
+        { data: commentData, error: commentsError },
+        { data: reactionData, error: reactionsError },
+        { data: requestData, error: requestsError },
+      ] = await Promise.all([
+        supabase
+          .from('thought_comments')
+          .select('id, thought_id, user_id, text, content, created_at')
+          .in('thought_id', visibleThoughtIds)
+          .order('created_at', { ascending: true }),
+        supabase
+          .from('thought_reactions')
+          .select('id, thought_id, user_id, reaction, created_at')
+          .eq('reaction', 'heart')
+          .in('thought_id', visibleThoughtIds),
+        supabase
+          .from('thought_talk_requests')
+          .select(
+            'id, thought_id, requester_id, owner_id, status, created_at, updated_at'
+          )
+          .in('thought_id', visibleThoughtIds)
+          .or(`requester_id.eq.${user.id},owner_id.eq.${user.id}`),
+      ]);
+
+      if (commentsError) throw commentsError;
+      if (reactionsError) throw reactionsError;
+      if (requestsError) throw requestsError;
+
+      const commentRows = ((commentData ?? []) as ThoughtCommentRow[])
+        .map((row) => ({
+          ...row,
+          text: getSafeText(row.text, row.content),
+        }))
+        .filter((row) => !blockedIds.has(row.user_id));
+
+      const reactionRows = ((reactionData ?? []) as ThoughtReactionRow[]).filter(
+        (row) => !blockedIds.has(row.user_id)
+      );
+
+      const requestRows = ((requestData ?? []) as ThoughtTalkRequestRow[]).filter(
+        (row) => !blockedIds.has(row.requester_id) && !blockedIds.has(row.owner_id)
+      );
+
+      const profileIds = new Set<string>();
+      visibleThoughtRows.forEach((row) => profileIds.add(row.user_id));
+      requestRows.forEach((row) => {
+        profileIds.add(row.requester_id);
+        profileIds.add(row.owner_id);
+      });
+
+      const { data: profileData, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, name, avatar_emoji, is_bankid_verified')
+        .in('id', [...profileIds]);
+
+      if (profilesError) throw profilesError;
+
+      const profileMap = new Map<string, ProfileRow>();
+      ((profileData ?? []) as ProfileRow[]).forEach((profile) => {
+        profileMap.set(profile.id, profile);
+      });
+
+      const commentsByThought = new Map<string, ThoughtCommentRow[]>();
+      commentRows.forEach((comment) => {
+        const list = commentsByThought.get(comment.thought_id) ?? [];
+        list.push(comment);
+        commentsByThought.set(comment.thought_id, list);
+      });
+
+      const reactionsByThought = new Map<string, ThoughtReactionRow[]>();
+      reactionRows.forEach((reaction) => {
+        const list = reactionsByThought.get(reaction.thought_id) ?? [];
+        list.push(reaction);
+        reactionsByThought.set(reaction.thought_id, list);
+      });
+
+      const requestsByThought = new Map<string, ThoughtTalkRequestRow[]>();
+      requestRows.forEach((request) => {
+        const list = requestsByThought.get(request.thought_id) ?? [];
+        list.push(request);
+        requestsByThought.set(request.thought_id, list);
+      });
+
+      const builtThoughts: ThoughtCard[] = visibleThoughtRows.map((thought) => {
+        const profile = profileMap.get(thought.user_id) ?? null;
+        const header = getThoughtHeader(profile, thought.visibility);
+
+        const reactions = reactionsByThought.get(thought.id) ?? [];
+        const comments = commentsByThought.get(thought.id) ?? [];
+        const requests = requestsByThought.get(thought.id) ?? [];
+
+        const myReaction =
+          reactions.find((reaction) => reaction.user_id === user.id) ?? null;
+
+        const outgoingRequest =
+          requests.find(
+            (request) =>
+              request.requester_id === user.id && request.owner_id === thought.user_id
+          ) ?? null;
+
+        const incomingRequests: IncomingRequest[] = requests
+          .filter((request) => request.owner_id === user.id && request.status === 'pending')
+          .map((request) => {
+            const requesterProfile = profileMap.get(request.requester_id) ?? null;
+            return {
+              id: request.id,
+              requesterId: request.requester_id,
+              requesterName: firstName(requesterProfile?.name) || 'Match',
+              requesterEmoji: requesterProfile?.avatar_emoji || '🙂',
+            };
+          });
+
+        return {
+          id: thought.id,
+          userId: thought.user_id,
+          text: getSafeText(thought.text, thought.content),
+          visibility: thought.visibility,
+          createdAt: thought.created_at,
+          timeLabel: formatRelativeTime(thought.created_at),
+          authorName: header.authorName,
+          authorEmoji: header.authorEmoji,
+          badgeText: header.badgeText,
+          canOpenProfile: header.canOpenProfile,
+          isMine: thought.user_id === user.id,
+          isMatched: matchedSet.has(thought.user_id),
+          isBankIdVerified: !!profile?.is_bankid_verified,
+          likeCount: reactions.length,
+          likedByMe: !!myReaction,
+          myReactionId: myReaction?.id ?? null,
+          comments,
+          outgoingRequestStatus: outgoingRequest?.status ?? null,
+          incomingRequests,
+        };
+      });
+
+      setThoughts(builtThoughts);
+    } catch (error: any) {
+      setErrorText(error?.message || 'Kunde inte ladda Tankar.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      setLoading(true);
+      loadThoughts();
+    }, [loadThoughts])
+  );
+
+  useEffect(() => {
+    if (!currentUserId) return;
+
+    let cancelled = false;
+
+    const startRealtime = async () => {
+      await teardownThoughtRealtime();
+
+      const requesterChannel = createScopedRealtimeChannel('tankar-requester', currentUserId)
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'thought_talk_requests',
+            filter: `requester_id=eq.${currentUserId}`,
+          },
+          async (payload) => {
+            const next = payload.new as ThoughtTalkRequestRow;
+
+            if (next.status === 'accepted' && !handledAcceptedIds.current.has(next.id)) {
+              const blockedIds = await loadBlockedIds(currentUserId);
+
+              if (blockedIds.has(next.owner_id)) {
+                await loadThoughts();
+                return;
+              }
+
+              handledAcceptedIds.current.add(next.id);
+
+              try {
+                const { conversationKey } = await ensureMatchedConversation(
+                  currentUserId,
+                  next.owner_id
+                );
+
+                router.push({
+                  pathname: '/chat/[conversationKey]',
+                  params: { conversationKey },
+                });
+              } catch {
+                // ignore
+              }
+            }
+
+            loadThoughts();
+          }
+        );
+
+      requesterChannel.subscribe((status) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          loadThoughts();
+        }
+      });
+
+      if (cancelled) {
+        await removeChannelSafely(requesterChannel);
+        return;
+      }
+
+      requesterChannelRef.current = requesterChannel;
+
+      const ownerChannel = createScopedRealtimeChannel('tankar-owner', currentUserId)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'thought_talk_requests',
+            filter: `owner_id=eq.${currentUserId}`,
+          },
+          () => {
+            loadThoughts();
+          }
+        );
+
+      ownerChannel.subscribe((status) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          loadThoughts();
+        }
+      });
+
+      if (cancelled) {
+        await removeChannelSafely(ownerChannel);
+        return;
+      }
+
+      ownerChannelRef.current = ownerChannel;
+    };
+
+    startRealtime();
+
+    return () => {
+      cancelled = true;
+      teardownThoughtRealtime();
+    };
+  }, [currentUserId, router, loadThoughts, teardownThoughtRealtime]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await loadThoughts();
+  };
+
+  const publishThought = async () => {
+    const trimmed = draftText.trim();
+
+    if (!trimmed || publishing || !currentUserId) return;
+
+    try {
+      setPublishing(true);
+
+      const { error } = await supabase.from('thoughts').insert({
+        user_id: currentUserId,
+        text: trimmed,
+        content: trimmed,
+        visibility,
+        is_active: true,
+      });
+
+      if (error) throw error;
+
+      setDraftText('');
+      setVisibility('anonymous');
+      setComposerOpen(false);
+
+      await loadThoughts();
+    } catch (error: any) {
+      Alert.alert('Kunde inte publicera', error?.message || 'Något gick fel.');
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  const toggleLike = async (thoughtId: string) => {
+    const thought = thoughts.find((item) => item.id === thoughtId);
+    if (!thought || !currentUserId) return;
+
+    const blockedIds = await loadBlockedIds(currentUserId);
+    if (blockedIds.has(thought.userId)) {
+      Alert.alert('Inte tillgänglig', 'Den här personen är inte tillgänglig längre.');
+      await loadThoughts();
+      return;
+    }
+
+    const wasLiked = thought.likedByMe;
+    const previousReactionId = thought.myReactionId;
+
     setThoughts((prev) =>
       prev.map((item) =>
-        item.id === id
-          ? {
+        item.id !== thoughtId
+          ? item
+          : {
               ...item,
-              likes: likedIds.includes(id) ? Math.max(0, item.likes - 1) : item.likes + 1,
+              likedByMe: !wasLiked,
+              likeCount: wasLiked ? Math.max(0, item.likeCount - 1) : item.likeCount + 1,
+              myReactionId: wasLiked ? null : '__pending__',
             }
-          : item
       )
     );
 
-    setLikedIds((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
-    );
+    try {
+      if (wasLiked && previousReactionId) {
+        const { error } = await supabase
+          .from('thought_reactions')
+          .delete()
+          .eq('id', previousReactionId);
+
+        if (error) throw error;
+      } else {
+        const { data, error } = await supabase
+          .from('thought_reactions')
+          .insert({
+            thought_id: thoughtId,
+            user_id: currentUserId,
+            reaction: 'heart',
+          })
+          .select('id')
+          .single();
+
+        if (error) throw error;
+
+        setThoughts((prev) =>
+          prev.map((item) =>
+            item.id !== thoughtId
+              ? item
+              : {
+                  ...item,
+                  myReactionId: data?.id || null,
+                }
+          )
+        );
+      }
+    } catch {
+      await loadThoughts();
+    }
   };
 
-  const publishThought = () => {
-    const trimmed = draftText.trim();
-    if (!trimmed) return;
-
-    const newThought: Thought = {
-      id: Date.now().toString(),
-      text: trimmed,
-      time: 'Nyss',
-      likes: 0,
-      visibility,
-      comments: [],
-    };
-
-    setThoughts((prev) => [newThought, ...prev]);
-    setDraftText('');
-    setVisibility('anonymous');
-    setComposerOpen(false);
-  };
-
-  const updateCommentDraft = (thoughtId: string, value: string) => {
-    setCommentDrafts((prev) => ({
-      ...prev,
-      [thoughtId]: value,
-    }));
-  };
-
-  const submitComment = (thoughtId: string) => {
+  const submitComment = async (thoughtId: string) => {
     const value = (commentDrafts[thoughtId] || '').trim();
-    if (!value) return;
+    const thought = thoughts.find((item) => item.id === thoughtId);
 
-    const newComment: CommentItem = {
-      id: `${thoughtId}-${Date.now()}`,
-      text: value,
-      time: 'Nyss',
-    };
+    if (!value || !currentUserId || submittingCommentId || !thought) return;
 
-    setThoughts((prev) =>
-      prev.map((thought) =>
-        thought.id === thoughtId
-          ? {
-              ...thought,
-              comments: [...thought.comments, newComment],
-            }
-          : thought
-      )
-    );
+    const blockedIds = await loadBlockedIds(currentUserId);
+    if (blockedIds.has(thought.userId)) {
+      Alert.alert('Inte tillgänglig', 'Den här personen är inte tillgänglig längre.');
+      await loadThoughts();
+      return;
+    }
 
-    setCommentDrafts((prev) => ({
-      ...prev,
-      [thoughtId]: '',
-    }));
+    try {
+      setSubmittingCommentId(thoughtId);
+
+      const { data, error } = await supabase
+        .from('thought_comments')
+        .insert({
+          thought_id: thoughtId,
+          user_id: currentUserId,
+          text: value,
+          content: value,
+        })
+        .select('id, thought_id, user_id, text, content, created_at')
+        .single();
+
+      if (error) throw error;
+
+      const inserted = data as ThoughtCommentRow;
+
+      const newComment: ThoughtCommentRow = {
+        ...inserted,
+        text: getSafeText(inserted.text, inserted.content),
+      };
+
+      setThoughts((prev) =>
+        prev.map((item) =>
+          item.id !== thoughtId
+            ? item
+            : {
+                ...item,
+                comments: [...item.comments, newComment],
+              }
+        )
+      );
+
+      setCommentDrafts((prev) => ({
+        ...prev,
+        [thoughtId]: '',
+      }));
+    } catch (error: any) {
+      Alert.alert('Kunde inte skicka kommentar', error?.message || 'Något gick fel.');
+    } finally {
+      setSubmittingCommentId('');
+    }
   };
+
+  const handleRequestTalk = async (thought: ThoughtCard) => {
+    if (!currentUserId || thought.isMine || sendingTalkId) return;
+
+    const blockedIds = await loadBlockedIds(currentUserId);
+    if (blockedIds.has(thought.userId)) {
+      Alert.alert('Inte tillgänglig', 'Den här personen är inte tillgänglig längre.');
+      await loadThoughts();
+      return;
+    }
+
+    if (!thought.isMatched) {
+      Alert.alert('Matcha först', 'Du behöver matcha med personen på Hitta först.');
+      return;
+    }
+
+    if (thought.outgoingRequestStatus === 'accepted') {
+      try {
+        const { conversationKey } = await ensureMatchedConversation(
+          currentUserId,
+          thought.userId
+        );
+
+        router.push({
+          pathname: '/chat/[conversationKey]',
+          params: { conversationKey },
+        });
+      } catch (error: any) {
+        Alert.alert('Kunde inte öppna chatten', error?.message || 'Något gick fel.');
+      }
+      return;
+    }
+
+    try {
+      setSendingTalkId(thought.id);
+
+      const { error } = await supabase.from('thought_talk_requests').upsert(
+        {
+          thought_id: thought.id,
+          requester_id: currentUserId,
+          owner_id: thought.userId,
+          status: 'pending',
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'thought_id,requester_id' }
+      );
+
+      if (error) throw error;
+
+      await loadThoughts();
+
+      Alert.alert(
+        'Skickat',
+        'Din fråga har skickats. Om personen svarar ja öppnas chatten automatiskt.'
+      );
+    } catch (error: any) {
+      Alert.alert('Kunde inte skicka', error?.message || 'Något gick fel.');
+    } finally {
+      setSendingTalkId('');
+    }
+  };
+
+  const handleAcceptTalk = async (requestId: string, requesterId: string) => {
+    if (!currentUserId || processingRequestId) return;
+
+    const blockedIds = await loadBlockedIds(currentUserId);
+    if (blockedIds.has(requesterId)) {
+      Alert.alert('Inte tillgänglig', 'Den här personen är inte tillgänglig längre.');
+      await loadThoughts();
+      return;
+    }
+
+    try {
+      setProcessingRequestId(requestId);
+
+      const { error } = await supabase
+        .from('thought_talk_requests')
+        .update({
+          status: 'accepted',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', requestId)
+        .eq('owner_id', currentUserId);
+
+      if (error) throw error;
+
+      const { conversationKey } = await ensureMatchedConversation(
+        currentUserId,
+        requesterId
+      );
+
+      await loadThoughts();
+
+      router.push({
+        pathname: '/chat/[conversationKey]',
+        params: { conversationKey },
+      });
+    } catch (error: any) {
+      Alert.alert('Kunde inte acceptera', error?.message || 'Något gick fel.');
+    } finally {
+      setProcessingRequestId('');
+    }
+  };
+
+  const handleDeclineTalk = async (requestId: string, requesterId: string) => {
+    if (!currentUserId || processingRequestId) return;
+
+    const blockedIds = await loadBlockedIds(currentUserId);
+    if (blockedIds.has(requesterId)) {
+      await loadThoughts();
+      return;
+    }
+
+    try {
+      setProcessingRequestId(requestId);
+
+      const { error } = await supabase
+        .from('thought_talk_requests')
+        .update({
+          status: 'declined',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', requestId)
+        .eq('owner_id', currentUserId);
+
+      if (error) throw error;
+
+      await loadThoughts();
+    } catch (error: any) {
+      Alert.alert('Kunde inte svara', error?.message || 'Något gick fel.');
+    } finally {
+      setProcessingRequestId('');
+    }
+  };
+
+  if (loading) {
+    return (
+      <WithUScreen>
+        <WithUTopBar
+          title="WithU"
+          subtitle="Du är aldrig ensam."
+          right={<WithUAvatar emoji="😊" size={34} />}
+        />
+        <WithUPage style={styles.pageOnly}>
+          <View style={styles.stateCard}>
+            <ActivityIndicator size="large" color={withuColors.teal} />
+            <Text style={styles.stateTitle}>Laddar Tankar…</Text>
+            <Text style={styles.stateText}>Vi hämtar tankar och dina matchkopplingar.</Text>
+          </View>
+        </WithUPage>
+      </WithUScreen>
+    );
+  }
+
+  if (errorText) {
+    return (
+      <WithUScreen>
+        <WithUTopBar
+          title="WithU"
+          subtitle="Du är aldrig ensam."
+          right={<WithUAvatar emoji="😊" size={34} />}
+        />
+        <WithUPage style={styles.pageOnly}>
+          <View style={styles.stateCard}>
+            <Text style={styles.stateTitle}>Kunde inte laddas</Text>
+            <Text style={styles.stateText}>{errorText}</Text>
+            <WithUPrimaryButton title="Försök igen" onPress={loadThoughts} />
+          </View>
+        </WithUPage>
+      </WithUScreen>
+    );
+  }
 
   return (
-    <View style={styles.container}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.headerRow}>
-          <View>
-            <Text style={styles.title}>Tankar</Text>
-            <Text style={styles.subtitle}>Ett tryggt anonymt rum för det du känner</Text>
-          </View>
+    <WithUScreen>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <WithUTopBar
+          title="WithU"
+          subtitle="Du är aldrig ensam."
+          right={
+            <View style={styles.topBarRight}>
+              <Pressable style={styles.plusButton} onPress={() => setComposerOpen(true)}>
+                <Text style={styles.plusButtonText}>＋</Text>
+              </Pressable>
+              <WithUAvatar emoji="😊" size={34} />
+            </View>
+          }
+        />
 
-          <Pressable style={styles.plusButton} onPress={() => setComposerOpen(true)}>
-            <Text style={styles.plusButtonText}>+</Text>
+        <Pressable style={styles.composeBar} onPress={() => setComposerOpen(true)}>
+          <View style={styles.composeBarAvatar}>
+            <Text style={styles.composeBarEmoji}>🌸</Text>
+          </View>
+          <View style={styles.composeBarField}>
+            <Text style={styles.composeBarPlaceholder}>Dela en tanke anonymt...</Text>
+          </View>
+        </Pressable>
+
+        <View style={styles.filterBar}>
+          <Pressable
+            style={[styles.filterChip, activeFilter === 'alla' && styles.filterChipActive]}
+            onPress={() => setActiveFilter('alla')}
+          >
+            <Text
+              style={[
+                styles.filterChipText,
+                activeFilter === 'alla' && styles.filterChipTextActive,
+              ]}
+            >
+              Alla
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={[styles.filterChip, activeFilter === 'matchade' && styles.filterChipActive]}
+            onPress={() => setActiveFilter('matchade')}
+          >
+            <Text
+              style={[
+                styles.filterChipText,
+                activeFilter === 'matchade' && styles.filterChipTextActive,
+              ]}
+            >
+              Matchade
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={[styles.filterChip, activeFilter === 'mina' && styles.filterChipActive]}
+            onPress={() => setActiveFilter('mina')}
+          >
+            <Text
+              style={[
+                styles.filterChipText,
+                activeFilter === 'mina' && styles.filterChipTextActive,
+              ]}
+            >
+              Mina
+            </Text>
           </Pressable>
         </View>
 
-        {thoughts.map((item) => {
-          const liked = likedIds.includes(item.id);
-          const commentCount = item.comments.length;
-          const draftValue = commentDrafts[item.id] || '';
-
-          return (
-            <View key={item.id} style={styles.card}>
-              <View style={styles.cardTop}>
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>{getBadgeText(item.visibility)}</Text>
-                </View>
-
-                <Text style={styles.timeText}>{item.time}</Text>
+        <ScrollView
+          style={styles.feed}
+          contentContainerStyle={styles.feedContent}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <WithUPage style={styles.page}>
+            {filteredThoughts.length === 0 ? (
+              <View style={styles.emptyWrap}>
+                <Text style={styles.emptyTitle}>Inga tankar här ännu</Text>
+                <Text style={styles.emptyText}>
+                  Prova ett annat filter eller skriv första tanken själv.
+                </Text>
+                <WithUPrimaryButton title="Skriv en tanke" onPress={() => setComposerOpen(true)} />
               </View>
+            ) : (
+              filteredThoughts.map((item) => {
+                const latestComment = item.comments[item.comments.length - 1];
+                const isSending = sendingTalkId === item.id;
 
-              <Text style={styles.thoughtText}>{item.text}</Text>
+                return (
+                  <View key={item.id} style={styles.post}>
+                    <View style={styles.postHeader}>
+                      <Pressable
+                        disabled={!item.canOpenProfile}
+                        onPress={() => openPublicProfile(item.userId, item.canOpenProfile)}
+                        style={({ pressed }) => [
+                          styles.postIdentityPress,
+                          item.canOpenProfile && pressed && styles.sectionPressed,
+                        ]}
+                      >
+                        <View style={styles.postAv}>
+                          <Text style={styles.postAvEmoji}>{item.authorEmoji}</Text>
+                        </View>
 
-              <View style={styles.actionsRow}>
-                <Pressable
-                  style={[styles.actionChip, liked && styles.actionChipActive]}
-                  onPress={() => toggleLike(item.id)}
-                >
-                  <Text style={[styles.actionChipText, liked && styles.actionChipTextActive]}>
-                    {liked ? '💙' : '🤍'} {item.likes}
-                  </Text>
-                </Pressable>
+                        <View style={styles.postMeta}>
+                          {!!item.authorName && (
+                            <Text style={styles.postAuthorName}>{item.authorName}</Text>
+                          )}
 
-                <View style={styles.commentCountChip}>
-                  <Text style={styles.commentCountText}>💬 {commentCount}</Text>
-                </View>
+                          <View style={styles.postBadgeRow}>
+                            <View
+                              style={[
+                                styles.postBadge,
+                                item.visibility === 'anonymous' && styles.postBadgeGreen,
+                                item.visibility === 'nickname' && styles.postBadgeBlue,
+                                item.visibility === 'firstname' && styles.postBadgeOrange,
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.postBadgeText,
+                                  item.visibility === 'anonymous' && styles.postBadgeTextGreen,
+                                  item.visibility === 'nickname' && styles.postBadgeTextBlue,
+                                  item.visibility === 'firstname' && styles.postBadgeTextOrange,
+                                ]}
+                              >
+                                {item.badgeText}
+                              </Text>
+                            </View>
 
-                <Pressable style={styles.meetChip}>
-                  <Text style={styles.meetChipText}>👋 Träffas?</Text>
-                </Pressable>
-              </View>
+                            {item.isBankIdVerified ? (
+                              <View style={styles.bankidBadge}>
+                                <Text style={styles.bankidBadgeText}>✓ BankID</Text>
+                              </View>
+                            ) : null}
 
-              <View style={styles.commentsWrap}>
-                <Text style={styles.commentsTitle}>Kommentarer</Text>
+                            {item.isMatched && !item.isMine ? (
+                              <View style={styles.matchedBadge}>
+                                <Text style={styles.matchedBadgeText}>Matchad</Text>
+                              </View>
+                            ) : null}
+                          </View>
 
-                {item.comments.length === 0 ? (
-                  <Text style={styles.noCommentsText}>Inga kommentarer ännu.</Text>
-                ) : (
-                  item.comments.map((comment) => (
-                    <View key={comment.id} style={styles.commentBubble}>
-                      <Text style={styles.commentText}>{comment.text}</Text>
-                      <Text style={styles.commentTime}>{comment.time}</Text>
+                          {item.canOpenProfile ? (
+                            <Text style={styles.postProfileHint}>Tryck för profil</Text>
+                          ) : null}
+                        </View>
+                      </Pressable>
+
+                      <Text style={styles.postTime}>{item.timeLabel}</Text>
                     </View>
-                  ))
-                )}
 
-                <View style={styles.commentInputRow}>
+                    <Text style={styles.postText}>{item.text}</Text>
+
+                    <View style={styles.postActions}>
+                      <Pressable
+                        style={[styles.actionBtn, item.likedByMe && styles.actionBtnActive]}
+                        onPress={() => toggleLike(item.id)}
+                      >
+                        <Text
+                          style={[
+                            styles.actionBtnText,
+                            item.likedByMe && styles.actionBtnTextActive,
+                          ]}
+                        >
+                          {item.likedByMe ? '❤️' : '🤍'} {item.likeCount}
+                        </Text>
+                      </Pressable>
+
+                      <Pressable
+                        style={styles.actionBtn}
+                        onPress={() => setSelectedThoughtId(item.id)}
+                      >
+                        <Text style={styles.actionBtnText}>💬 {item.comments.length}</Text>
+                      </Pressable>
+
+                      {item.isMine ? (
+                        <View style={styles.actionBtnOwner}>
+                          <Text style={styles.actionBtnOwnerText}>Din tanke</Text>
+                        </View>
+                      ) : item.isMatched ? (
+                        <Pressable
+                          style={[
+                            styles.actionBtnTalk,
+                            item.outgoingRequestStatus === 'pending' &&
+                              styles.actionBtnPending,
+                            item.outgoingRequestStatus === 'accepted' &&
+                              styles.actionBtnAccepted,
+                            isSending && styles.btnDisabled,
+                          ]}
+                          onPress={() => handleRequestTalk(item)}
+                          disabled={isSending}
+                        >
+                          <Text
+                            style={[
+                              styles.actionBtnTalkText,
+                              item.outgoingRequestStatus === 'accepted' &&
+                                styles.actionBtnTalkTextAccepted,
+                            ]}
+                          >
+                            {item.outgoingRequestStatus === 'accepted'
+                              ? '💬 Öppna chatt'
+                              : item.outgoingRequestStatus === 'pending'
+                              ? 'Väntar på svar'
+                              : isSending
+                              ? 'Skickar...'
+                              : '💬 Vill du prata?'}
+                          </Text>
+                        </Pressable>
+                      ) : (
+                        <View style={styles.actionBtnLocked}>
+                          <Text style={styles.actionBtnLockedText}>🔒 Matcha först</Text>
+                        </View>
+                      )}
+                    </View>
+
+                    {item.isMine && item.incomingRequests.length > 0 ? (
+                      <View style={styles.requestsWrap}>
+                        <Text style={styles.requestsTitle}>Vill prata med dig</Text>
+
+                        {item.incomingRequests.map((request) => (
+                          <View key={request.id} style={styles.requestRow}>
+                            <Pressable
+                              style={({ pressed }) => [
+                                styles.requestLeft,
+                                pressed && styles.sectionPressedSoft,
+                              ]}
+                              onPress={() => openPublicProfile(request.requesterId, true)}
+                            >
+                              <Text style={styles.requestEmoji}>{request.requesterEmoji}</Text>
+                              <Text style={styles.requestName}>{request.requesterName}</Text>
+                            </Pressable>
+
+                            <View style={styles.requestBtns}>
+                              <Pressable
+                                style={[
+                                  styles.acceptBtn,
+                                  processingRequestId === request.id && styles.btnDisabled,
+                                ]}
+                                onPress={() =>
+                                  handleAcceptTalk(request.id, request.requesterId)
+                                }
+                                disabled={processingRequestId === request.id}
+                              >
+                                <Text style={styles.acceptBtnText}>
+                                  {processingRequestId === request.id ? '...' : 'Ja, chatta'}
+                                </Text>
+                              </Pressable>
+
+                              <Pressable
+                                style={[
+                                  styles.declineBtn,
+                                  processingRequestId === request.id && styles.btnDisabled,
+                                ]}
+                                onPress={() =>
+                                  handleDeclineTalk(request.id, request.requesterId)
+                                }
+                                disabled={processingRequestId === request.id}
+                              >
+                                <Text style={styles.declineBtnText}>Inte nu</Text>
+                              </Pressable>
+                            </View>
+                          </View>
+                        ))}
+                      </View>
+                    ) : null}
+
+                    <Pressable
+                      style={styles.commentPreview}
+                      onPress={() => setSelectedThoughtId(item.id)}
+                    >
+                      <Text style={styles.commentPreviewTitle}>Kommentarer</Text>
+
+                      {latestComment ? (
+                        <>
+                          <Text style={styles.commentPreviewText} numberOfLines={2}>
+                            {latestComment.text}
+                          </Text>
+                          <Text style={styles.commentPreviewMore}>
+                            {item.comments.length > 1
+                              ? `Visa alla ${item.comments.length} kommentarer`
+                              : 'Visa kommentar'}
+                          </Text>
+                        </>
+                      ) : (
+                        <Text style={styles.commentPreviewMore}>Skriv första kommentaren</Text>
+                      )}
+                    </Pressable>
+                  </View>
+                );
+              })
+            )}
+
+            <Text style={styles.footer}>Mår du dåligt? Mind 90101 · 1177</Text>
+          </WithUPage>
+        </ScrollView>
+
+        <Modal
+          visible={composerOpen}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setComposerOpen(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <KeyboardAvoidingView
+              style={styles.composerKeyboardWrap}
+              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            >
+              <View style={styles.composerSheet}>
+                <View style={styles.sheetHandle} />
+
+                <ScrollView
+                  style={styles.composerScroll}
+                  contentContainerStyle={styles.composerScrollContent}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                >
+                  <Text style={styles.modalTitleLarge}>Skriv en tanke</Text>
+
                   <TextInput
-                    value={draftValue}
-                    onChangeText={(value) => updateCommentDraft(item.id, value)}
-                    placeholder="Skriv en kommentar..."
-                    placeholderTextColor="#7A8AAA"
-                    style={styles.commentInput}
+                    value={draftText}
+                    onChangeText={setDraftText}
+                    placeholder="Skriv vad du känner eller tänker..."
+                    placeholderTextColor={withuColors.muted}
+                    style={styles.textArea}
+                    multiline
+                    maxLength={500}
+                    textAlignVertical="top"
                   />
+
+                  <Text style={styles.counter}>{remaining} tecken kvar</Text>
+
+                  <Text style={styles.modalSection}>Välj anonymitetsnivå</Text>
+
+                  <View style={styles.visibilityRow}>
+                    {(['anonymous', 'nickname', 'firstname'] as ThoughtVisibility[]).map(
+                      (value) => (
+                        <Pressable
+                          key={value}
+                          style={[
+                            styles.visChip,
+                            visibility === value && styles.visChipActive,
+                          ]}
+                          onPress={() => setVisibility(value)}
+                        >
+                          <Text
+                            style={[
+                              styles.visChipText,
+                              visibility === value && styles.visChipTextActive,
+                            ]}
+                          >
+                            {value === 'anonymous'
+                              ? 'Helt anonymt'
+                              : value === 'nickname'
+                              ? 'Smeknamn'
+                              : 'Förnamn'}
+                          </Text>
+                        </Pressable>
+                      )
+                    )}
+                  </View>
+                </ScrollView>
+
+                <View style={styles.composerActions}>
+                  <Pressable
+                    style={styles.closeActionBtn}
+                    onPress={() => setComposerOpen(false)}
+                  >
+                    <Text style={styles.closeActionText}>Stäng</Text>
+                  </Pressable>
 
                   <Pressable
                     style={[
-                      styles.commentSendButton,
-                      draftValue.trim().length === 0 && styles.commentSendButtonDisabled,
+                      styles.publishActionBtn,
+                      (!draftText.trim() || publishing) && styles.publishActionBtnDisabled,
                     ]}
-                    onPress={() => submitComment(item.id)}
-                    disabled={draftValue.trim().length === 0}
+                    onPress={publishThought}
+                    disabled={!draftText.trim() || publishing}
                   >
-                    <Text style={styles.commentSendButtonText}>Skicka</Text>
+                    <Text style={styles.publishActionText}>
+                      {publishing ? 'Sparar...' : 'Publicera'}
+                    </Text>
                   </Pressable>
                 </View>
               </View>
-            </View>
-          );
-        })}
-
-        <Text style={styles.footerHelp}>Mår du dåligt? Mind 90101 · 1177</Text>
-      </ScrollView>
-
-      <Modal
-        visible={composerOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setComposerOpen(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Skriv en tanke</Text>
-
-              <Pressable
-                style={[
-                  styles.publishButton,
-                  draftText.trim().length === 0 && styles.publishButtonDisabled,
-                ]}
-                onPress={publishThought}
-                disabled={draftText.trim().length === 0}
-              >
-                <Text style={styles.publishButtonText}>Publicera</Text>
-              </Pressable>
-            </View>
-
-            <TextInput
-              value={draftText}
-              onChangeText={setDraftText}
-              placeholder="Skriv vad du känner eller tänker..."
-              placeholderTextColor="#7A8AAA"
-              style={styles.textArea}
-              multiline
-              maxLength={500}
-            />
-
-            <Text style={styles.counterText}>{remaining} tecken kvar</Text>
-
-            <Text style={styles.modalSectionTitle}>Välj anonymitetsnivå</Text>
-
-            <View style={styles.visibilityRow}>
-              <Pressable
-                style={[
-                  styles.visibilityChip,
-                  visibility === 'anonymous' && styles.visibilityChipActive,
-                ]}
-                onPress={() => setVisibility('anonymous')}
-              >
-                <Text
-                  style={[
-                    styles.visibilityChipText,
-                    visibility === 'anonymous' && styles.visibilityChipTextActive,
-                  ]}
-                >
-                  Helt anonymt
-                </Text>
-              </Pressable>
-
-              <Pressable
-                style={[
-                  styles.visibilityChip,
-                  visibility === 'nickname' && styles.visibilityChipActive,
-                ]}
-                onPress={() => setVisibility('nickname')}
-              >
-                <Text
-                  style={[
-                    styles.visibilityChipText,
-                    visibility === 'nickname' && styles.visibilityChipTextActive,
-                  ]}
-                >
-                  Avatar + smeknamn
-                </Text>
-              </Pressable>
-
-              <Pressable
-                style={[
-                  styles.visibilityChip,
-                  visibility === 'firstname' && styles.visibilityChipActive,
-                ]}
-                onPress={() => setVisibility('firstname')}
-              >
-                <Text
-                  style={[
-                    styles.visibilityChipText,
-                    visibility === 'firstname' && styles.visibilityChipTextActive,
-                  ]}
-                >
-                  Öppet förnamn
-                </Text>
-              </Pressable>
-            </View>
-
-            <Pressable style={styles.closeLink} onPress={() => setComposerOpen(false)}>
-              <Text style={styles.closeLinkText}>Stäng</Text>
-            </Pressable>
+            </KeyboardAvoidingView>
           </View>
-        </View>
-      </Modal>
-    </View>
+        </Modal>
+
+        <Modal
+          visible={!!selectedThought}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setSelectedThoughtId(null)}
+        >
+          <View style={styles.modalOverlay}>
+            <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+              style={styles.commentsWrap}
+            >
+              <View style={styles.commentsSheet}>
+                <View style={styles.commentsHeader}>
+                  <Text style={styles.commentsTitle}>Kommentarer</Text>
+                  <Pressable
+                    style={styles.commentsClose}
+                    onPress={() => setSelectedThoughtId(null)}
+                  >
+                    <Text style={styles.commentsCloseText}>✕</Text>
+                  </Pressable>
+                </View>
+
+                <ScrollView
+                  style={styles.commentsList}
+                  contentContainerStyle={styles.commentsListContent}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                >
+                  {selectedThought ? (
+                    <View style={styles.selectedThoughtBox}>
+                      <Text style={styles.selectedThoughtText}>{selectedThought.text}</Text>
+                    </View>
+                  ) : null}
+
+                  {selectedThought?.comments.length ? (
+                    selectedThought.comments.map((comment) => (
+                      <View key={comment.id} style={styles.commentBubble}>
+                        <Text style={styles.commentText}>{comment.text}</Text>
+                        <Text style={styles.commentTime}>
+                          {formatRelativeTime(comment.created_at)}
+                        </Text>
+                      </View>
+                    ))
+                  ) : (
+                    <Text style={styles.noComments}>Inga kommentarer ännu. Skriv första!</Text>
+                  )}
+                </ScrollView>
+
+                {selectedThought ? (
+                  <View style={styles.commentsComposer}>
+                    <View style={styles.commentsInputWrap}>
+                      <TextInput
+                        value={selectedCommentDraft}
+                        onChangeText={(value) =>
+                          setCommentDrafts((prev) => ({
+                            ...prev,
+                            [selectedThought.id]: value,
+                          }))
+                        }
+                        placeholder="Skriv en kommentar..."
+                        placeholderTextColor={withuColors.muted}
+                        style={styles.commentsInput}
+                        multiline
+                        textAlignVertical="center"
+                      />
+                    </View>
+
+                    <Pressable
+                      style={[
+                        styles.commentsSendBtn,
+                        (!selectedCommentDraft.trim() ||
+                          submittingCommentId === selectedThought.id) &&
+                          styles.commentsSendBtnDisabled,
+                      ]}
+                      onPress={() => submitComment(selectedThought.id)}
+                      disabled={
+                        !selectedCommentDraft.trim() ||
+                        submittingCommentId === selectedThought.id
+                      }
+                    >
+                      <Text style={styles.commentsSendText}>
+                        {submittingCommentId === selectedThought.id ? '...' : 'Skicka'}
+                      </Text>
+                    </Pressable>
+                  </View>
+                ) : null}
+              </View>
+            </KeyboardAvoidingView>
+          </View>
+        </Modal>
+      </KeyboardAvoidingView>
+    </WithUScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  flex: {
     flex: 1,
-    backgroundColor: '#F0F2F8',
   },
-  content: {
-    paddingHorizontal: 20,
-    paddingTop: 64,
-    paddingBottom: 40,
-  },
-  headerRow: {
+
+  topBarRight: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 18,
-  },
-  title: {
-    color: '#1B2B4B',
-    fontSize: 30,
-    fontWeight: '800',
-    marginBottom: 4,
-  },
-  subtitle: {
-    color: '#7A8AAA',
-    fontSize: 14,
-    maxWidth: 260,
-    lineHeight: 20,
+    alignItems: 'center',
+    gap: 8,
   },
   plusButton: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: '#1C5E52',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: withuColors.teal,
     alignItems: 'center',
     justifyContent: 'center',
   },
   plusButtonText: {
     color: '#FFFFFF',
-    fontSize: 28,
-    fontWeight: '700',
-    marginTop: -2,
+    fontSize: 20,
+    fontWeight: '900',
+    lineHeight: 22,
+    marginTop: -1,
   },
-  card: {
+
+  composeBar: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 22,
+    borderBottomWidth: 1,
+    borderBottomColor: '#ECEEF4',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  composeBarAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: withuColors.tealBg,
+    borderWidth: 1,
+    borderColor: 'rgba(28,94,82,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  composeBarEmoji: {
+    fontSize: 18,
+  },
+  composeBarField: {
+    flex: 1,
+    height: 38,
+    backgroundColor: '#F4F6FA',
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: '#E0E4EF',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  composeBarPlaceholder: {
+    fontSize: 13,
+    color: '#A0A8C0',
+  },
+
+  filterBar: {
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ECEEF4',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  filterChip: {
+    borderRadius: 999,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    backgroundColor: '#F4F6FA',
     borderWidth: 1,
     borderColor: '#DDE2EF',
-    padding: 18,
-    marginBottom: 14,
-    shadowColor: '#1B2B4B',
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 3,
   },
-  cardTop: {
+  filterChipActive: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#111111',
+  },
+  filterChipText: {
+    color: withuColors.navy,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  filterChipTextActive: {
+    color: withuColors.navy,
+  },
+
+  feed: {
+    flex: 1,
+    backgroundColor: '#F4F6FA',
+  },
+  feedContent: {
+    paddingBottom: 40,
+  },
+  page: {
+    paddingTop: withuSpacing.lg,
+  },
+
+  post: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: withuRadius.xl,
+    borderWidth: 1,
+    borderColor: '#ECEEF4',
+    padding: 14,
+    marginBottom: 14,
+    ...withuShadows.card,
+  },
+  postHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 14,
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 10,
   },
-  badge: {
-    backgroundColor: '#E8F4F0',
+  postIdentityPress: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    borderRadius: 14,
+  },
+  postAv: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#FCEAEA',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  postAvEmoji: {
+    fontSize: 20,
+  },
+  postMeta: {
+    flex: 1,
+  },
+  postAuthorName: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: withuColors.navy,
+    marginBottom: 3,
+  },
+  postBadgeRow: {
+    flexDirection: 'row',
+    gap: 5,
+    flexWrap: 'wrap',
+    alignItems: 'center',
+  },
+  postBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  postBadgeGreen: {
+    backgroundColor: withuColors.successBg,
+  },
+  postBadgeBlue: {
+    backgroundColor: '#EEF4FF',
+  },
+  postBadgeOrange: {
+    backgroundColor: '#FEF4E8',
+  },
+  postBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  postBadgeTextGreen: {
+    color: withuColors.success,
+  },
+  postBadgeTextBlue: {
+    color: '#5B7FE0',
+  },
+  postBadgeTextOrange: {
+    color: '#C07020',
+  },
+  postProfileHint: {
+    marginTop: 5,
+    fontSize: 10,
+    fontWeight: '700',
+    color: withuColors.muted,
+  },
+  bankidBadge: {
+    backgroundColor: withuColors.successBg,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  bankidBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: withuColors.success,
+  },
+  matchedBadge: {
+    backgroundColor: '#FFF7E8',
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  matchedBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#C07020',
+  },
+  postTime: {
+    fontSize: 10,
+    color: withuColors.muted,
+    fontWeight: '600',
+    paddingTop: 2,
+  },
+  postText: {
+    fontSize: 15,
+    lineHeight: 24,
+    color: '#1B2B4B',
+    marginBottom: 12,
+  },
+
+  postActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 8,
+  },
+  actionBtn: {
+    backgroundColor: '#F4F6FA',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderColor: '#E0E4EF',
+  },
+  actionBtnActive: {
+    backgroundColor: '#FCEAEA',
+    borderColor: '#E05C4B',
+  },
+  actionBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: withuColors.navy,
+  },
+  actionBtnTextActive: {
+    color: '#E05C4B',
+  },
+  actionBtnTalk: {
+    backgroundColor: withuColors.tealBg,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderColor: withuColors.teal,
+  },
+  actionBtnPending: {
+    backgroundColor: '#FFF7E8',
+    borderColor: '#C07020',
+  },
+  actionBtnAccepted: {
+    backgroundColor: withuColors.tealBg,
+    borderColor: withuColors.teal,
+  },
+  actionBtnTalkText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: withuColors.teal,
+  },
+  actionBtnTalkTextAccepted: {
+    color: withuColors.teal,
+  },
+  actionBtnLocked: {
+    backgroundColor: '#F4F6FA',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderColor: '#DDE2EF',
+  },
+  actionBtnLockedText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: withuColors.muted,
+  },
+  actionBtnOwner: {
+    backgroundColor: '#EEF4FF',
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 7,
   },
-  badgeText: {
-    color: '#1C5E52',
+  actionBtnOwnerText: {
     fontSize: 12,
     fontWeight: '800',
+    color: '#5B7FE0',
   },
-  timeText: {
-    color: '#7A8AAA',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  thoughtText: {
-    color: '#333333',
-    fontSize: 15,
-    lineHeight: 24,
-    marginBottom: 16,
-  },
-  actionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    marginBottom: 14,
-  },
-  actionChip: {
-    backgroundColor: '#EEF1F8',
-    borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginRight: 10,
-    marginBottom: 8,
-  },
-  actionChipActive: {
-    backgroundColor: '#E8F4F0',
-  },
-  actionChipText: {
-    color: '#1B2B4B',
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  actionChipTextActive: {
-    color: '#1C5E52',
-  },
-  commentCountChip: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginRight: 10,
-    marginBottom: 8,
-  },
-  commentCountText: {
-    color: '#1B2B4B',
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  meetChip: {
-    backgroundColor: '#FEF4E8',
-    borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginBottom: 8,
-  },
-  meetChipText: {
-    color: '#C07020',
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  commentsWrap: {
-    marginTop: 4,
-    borderTopWidth: 1,
-    borderTopColor: '#EEF1F8',
-    paddingTop: 14,
-  },
-  commentsTitle: {
-    color: '#1B2B4B',
-    fontSize: 15,
-    fontWeight: '800',
-    marginBottom: 10,
-  },
-  noCommentsText: {
-    color: '#7A8AAA',
-    fontSize: 14,
-    marginBottom: 10,
-  },
-  commentBubble: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 16,
+
+  requestsWrap: {
+    backgroundColor: '#FFF8EF',
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#EEF1F8',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderColor: '#F1DEC2',
+    padding: 10,
     marginBottom: 8,
   },
-  commentText: {
-    color: '#333333',
-    fontSize: 14,
-    lineHeight: 21,
-    marginBottom: 4,
+  requestsTitle: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: withuColors.navy,
+    marginBottom: 8,
   },
-  commentTime: {
-    color: '#7A8AAA',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  commentInputRow: {
+  requestRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
+    justifyContent: 'space-between',
+    marginBottom: 6,
+    gap: 8,
   },
-  commentInput: {
+  requestLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     flex: 1,
-    backgroundColor: '#F0F2F8',
-    borderRadius: 14,
+    borderRadius: 12,
+  },
+  requestEmoji: {
+    fontSize: 20,
+  },
+  requestName: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: withuColors.navy,
+  },
+  requestBtns: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  acceptBtn: {
+    backgroundColor: withuColors.teal,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  acceptBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  declineBtn: {
+    backgroundColor: '#F4F6FA',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     borderWidth: 1,
     borderColor: '#DDE2EF',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: '#1B2B4B',
-    fontSize: 14,
-    marginRight: 10,
   },
-  commentSendButton: {
-    backgroundColor: '#1C5E52',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+  declineBtnText: {
+    color: withuColors.navy,
+    fontSize: 12,
+    fontWeight: '700',
   },
-  commentSendButtonDisabled: {
-    opacity: 0.45,
+
+  commentPreview: {
+    marginTop: 4,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F0',
   },
-  commentSendButtonText: {
-    color: '#FFFFFF',
+  commentPreviewTitle: {
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '900',
+    color: withuColors.navy,
+    marginBottom: 6,
   },
-  footerHelp: {
-    color: '#7A8AAA',
+  commentPreviewText: {
     fontSize: 13,
+    color: '#555555',
+    marginBottom: 4,
+    lineHeight: 20,
+  },
+  commentPreviewMore: {
+    fontSize: 11,
+    color: withuColors.muted,
+    fontWeight: '700',
+  },
+
+  footer: {
     textAlign: 'center',
-    marginTop: 8,
-    marginBottom: 12,
+    fontSize: 12,
+    color: withuColors.muted,
+    marginTop: 20,
+    marginBottom: 8,
   },
+
+  emptyWrap: {
+    padding: 24,
+    alignItems: 'center',
+  },
+  emptyTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: withuColors.navy,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  emptyText: {
+    fontSize: 14,
+    color: withuColors.muted,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 20,
+  },
+
+  pageOnly: {
+    paddingTop: withuSpacing.xl,
+  },
+  stateCard: {
+    backgroundColor: withuColors.white,
+    borderRadius: withuRadius.xl,
+    borderWidth: 1,
+    borderColor: withuColors.line,
+    padding: withuSpacing.xxl,
+    alignItems: 'center',
+    ...withuShadows.card,
+    marginTop: 40,
+  },
+  stateTitle: {
+    color: withuColors.navy,
+    fontSize: 24,
+    fontWeight: '900',
+    marginTop: 14,
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  stateText: {
+    color: '#555555',
+    fontSize: 15,
+    lineHeight: 24,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+
   modalOverlay: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(27, 43, 75, 0.18)',
+    backgroundColor: 'rgba(27,43,75,0.2)',
   },
-  modalCard: {
+
+  composerKeyboardWrap: {
+    justifyContent: 'flex-end',
+  },
+  composerSheet: {
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 26,
     borderTopRightRadius: 26,
-    paddingHorizontal: 20,
-    paddingTop: 18,
-    paddingBottom: 28,
     borderWidth: 1,
     borderColor: '#DDE2EF',
+    maxHeight: '86%',
   },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  sheetHandle: {
+    alignSelf: 'center',
+    width: 46,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: '#D7DDEB',
+    marginTop: 10,
+    marginBottom: 6,
   },
-  modalTitle: {
-    color: '#1B2B4B',
-    fontSize: 24,
-    fontWeight: '800',
+  composerScroll: {
+    flexGrow: 0,
   },
-  publishButton: {
-    backgroundColor: '#1C5E52',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+  composerScrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 16,
   },
-  publishButtonDisabled: {
-    opacity: 0.45,
-  },
-  publishButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '800',
+  modalTitleLarge: {
+    color: withuColors.navy,
+    fontSize: 22,
+    fontWeight: '900',
+    marginBottom: 14,
   },
   textArea: {
-    marginTop: 16,
     backgroundColor: '#F0F2F8',
-    borderRadius: 18,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: '#DDE2EF',
     minHeight: 140,
-    color: '#1B2B4B',
+    color: withuColors.navy,
     fontSize: 15,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    textAlignVertical: 'top',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
-  counterText: {
-    color: '#7A8AAA',
-    fontSize: 12,
+  counter: {
+    color: withuColors.muted,
+    fontSize: 11,
     textAlign: 'right',
-    marginTop: 8,
+    marginTop: 6,
     marginBottom: 14,
   },
-  modalSectionTitle: {
-    color: '#1B2B4B',
-    fontSize: 15,
-    fontWeight: '800',
+  modalSection: {
+    color: withuColors.navy,
+    fontSize: 14,
+    fontWeight: '900',
     marginBottom: 10,
   },
   visibilityRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    gap: 8,
   },
-  visibilityChip: {
+  visChip: {
     backgroundColor: '#EEF1F8',
     borderWidth: 1,
     borderColor: '#DDE2EF',
     borderRadius: 999,
     paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginRight: 10,
-    marginBottom: 10,
+    paddingVertical: 9,
   },
-  visibilityChipActive: {
-    backgroundColor: '#1C5E52',
-    borderColor: '#1C5E52',
+  visChipActive: {
+    backgroundColor: withuColors.teal,
+    borderColor: withuColors.teal,
   },
-  visibilityChipText: {
-    color: '#1B2B4B',
+  visChipText: {
+    color: withuColors.navy,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  visChipTextActive: {
+    color: '#FFFFFF',
+  },
+  composerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: Platform.OS === 'ios' ? 22 : 16,
+    borderTopWidth: 1,
+    borderTopColor: '#ECEEF4',
+    backgroundColor: '#FFFFFF',
+  },
+  closeActionBtn: {
+    flex: 1,
+    minHeight: 52,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#DDE2EF',
+    backgroundColor: '#F4F6FA',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeActionText: {
+    color: withuColors.navy,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  publishActionBtn: {
+    flex: 1,
+    minHeight: 52,
+    borderRadius: 999,
+    backgroundColor: withuColors.coral,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  publishActionBtnDisabled: {
+    opacity: 0.45,
+  },
+  publishActionText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+
+  commentsWrap: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  commentsSheet: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    height: '78%',
+    borderWidth: 1,
+    borderColor: '#DDE2EF',
+  },
+  commentsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#ECEEF4',
+  },
+  commentsTitle: {
+    color: withuColors.navy,
+    fontSize: 20,
+    fontWeight: '900',
+  },
+  commentsClose: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#F0F2F8',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  commentsCloseText: {
+    color: withuColors.navy,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  commentsList: {
+    flex: 1,
+  },
+  commentsListContent: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 14,
+  },
+  selectedThoughtBox: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E7ECF4',
+    padding: 12,
+    marginBottom: 12,
+  },
+  selectedThoughtText: {
+    color: '#333333',
+    fontSize: 14,
+    lineHeight: 22,
+  },
+  commentBubble: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#EEF1F8',
+    padding: 10,
+    marginBottom: 8,
+  },
+  commentText: {
+    color: '#333333',
+    fontSize: 13,
+    lineHeight: 20,
+    marginBottom: 3,
+  },
+  commentTime: {
+    color: withuColors.muted,
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  noComments: {
+    color: withuColors.muted,
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  commentsComposer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: Platform.OS === 'ios' ? 12 : 14,
+    borderTopWidth: 1,
+    borderTopColor: '#ECEEF4',
+    backgroundColor: '#FFFFFF',
+  },
+  commentsInputWrap: {
+    flex: 1,
+    marginRight: 8,
+  },
+  commentsInput: {
+    width: '100%',
+    minHeight: 44,
+    maxHeight: 100,
+    backgroundColor: '#F4F6FA',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#DDE2EF',
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 10,
+    color: withuColors.navy,
+    fontSize: 14,
+  },
+  commentsSendBtn: {
+    width: 96,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: withuColors.coral,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  commentsSendBtnDisabled: {
+    opacity: 0.45,
+  },
+  commentsSendText: {
+    color: '#FFFFFF',
     fontSize: 13,
     fontWeight: '800',
   },
-  visibilityChipTextActive: {
-    color: '#FFFFFF',
+
+  btnDisabled: {
+    opacity: 0.55,
   },
-  closeLink: {
-    alignSelf: 'center',
-    marginTop: 18,
+  sectionPressed: {
+    opacity: 0.75,
   },
-  closeLinkText: {
-    color: '#7A8AAA',
-    fontSize: 14,
-    fontWeight: '700',
+  sectionPressedSoft: {
+    opacity: 0.85,
   },
 });

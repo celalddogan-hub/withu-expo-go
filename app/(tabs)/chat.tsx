@@ -1,9 +1,9 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { memo, useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  FlatList,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -19,10 +19,7 @@ import {
 } from '../../src/theme/withuTheme';
 import {
   WithUAvatar,
-  WithUBadge,
-  WithUCard,
   WithUPage,
-  WithUPrimaryButton,
   WithUScreen,
   WithUTopBar,
 } from '../../src/components/withu/WithUPrimitives';
@@ -31,6 +28,7 @@ type MatchRow = {
   id: string;
   user_id: string;
   target_id: string;
+  action: string | null;
   is_match: boolean | null;
   created_at: string | null;
 };
@@ -47,7 +45,7 @@ type ProfileRow = {
 
 type MessageRow = {
   id: string;
-  match_id: string;
+  conversation_key: string | null;
   sender_id: string | null;
   content: string | null;
   message_type: string | null;
@@ -56,17 +54,42 @@ type MessageRow = {
   created_at: string | null;
 };
 
-type HiddenChatRow = {
-  match_id: string;
+type BlockedRow = {
+  blockerad_av: string | null;
+  blockerad: string | null;
+};
+
+type HiddenConversationRow = {
+  conversation_key: string | null;
 };
 
 type ChatListItem = {
   matchId: string;
+  conversationKey: string;
   createdAt: string | null;
   profile: ProfileRow | null;
   latestMessage: MessageRow | null;
   unreadCount: number;
 };
+
+function makeConversationKey(a: string, b: string) {
+  return [a, b].sort().join('__');
+}
+
+function pickBestMatch(rows: MatchRow[]) {
+  if (rows.length === 0) return null;
+
+  const sorted = [...rows].sort((a, b) => {
+    const aPriority = a.action === 'contact' ? 0 : 1;
+    const bPriority = b.action === 'contact' ? 0 : 1;
+
+    if (aPriority !== bPriority) return aPriority - bPriority;
+
+    return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+  });
+
+  return sorted[0];
+}
 
 function getAvatarEmoji(activity?: string, fallback?: string | null) {
   if (fallback && fallback.trim()) return fallback;
@@ -74,11 +97,42 @@ function getAvatarEmoji(activity?: string, fallback?: string | null) {
   const value = (activity || '').toLowerCase();
 
   if (value.includes('kafé') || value.includes('fika') || value.includes('lunch')) return '☕';
-  if (value.includes('promenad') || value.includes('löpning') || value.includes('cykling')) return '🚶';
-  if (value.includes('plug') || value.includes('studie') || value.includes('språk') || value.includes('läxhjälp')) return '📚';
-  if (value.includes('brädspel') || value.includes('rollspel') || value.includes('escape') || value.includes('dataspel') || value.includes('spela')) return '🎲';
-  if (value.includes('yoga') || value.includes('gym') || value.includes('träning') || value.includes('padel')) return '💪';
-  if (value.includes('konsert') || value.includes('film') || value.includes('utställning') || value.includes('foto')) return '🎬';
+  if (value.includes('promenad') || value.includes('löpning') || value.includes('cykling')) {
+    return '🚶';
+  }
+  if (
+    value.includes('plug') ||
+    value.includes('studie') ||
+    value.includes('språk') ||
+    value.includes('läxhjälp')
+  ) {
+    return '📚';
+  }
+  if (
+    value.includes('brädspel') ||
+    value.includes('rollspel') ||
+    value.includes('escape') ||
+    value.includes('dataspel') ||
+    value.includes('spela')
+  ) {
+    return '🎲';
+  }
+  if (
+    value.includes('yoga') ||
+    value.includes('gym') ||
+    value.includes('träning') ||
+    value.includes('padel')
+  ) {
+    return '💪';
+  }
+  if (
+    value.includes('konsert') ||
+    value.includes('film') ||
+    value.includes('utställning') ||
+    value.includes('foto')
+  ) {
+    return '🎬';
+  }
   if (value.includes('musik')) return '🎵';
   if (value.includes('telefon')) return '📞';
   if (value.includes('kultur')) return '🌍';
@@ -89,6 +143,7 @@ function getAvatarEmoji(activity?: string, fallback?: string | null) {
 
 function getMessagePreview(message: MessageRow | null, currentUserId: string) {
   if (!message) return 'Ny match — starta chatten';
+
   const isMine = message.sender_id === currentUserId;
 
   let baseText = '';
@@ -123,6 +178,137 @@ function formatTime(value?: string | null) {
   });
 }
 
+function shallowSameItems(a: ChatListItem[], b: ChatListItem[]) {
+  if (a.length !== b.length) return false;
+
+  for (let i = 0; i < a.length; i += 1) {
+    const left = a[i];
+    const right = b[i];
+
+    if (
+      left.matchId !== right.matchId ||
+      left.conversationKey !== right.conversationKey ||
+      left.unreadCount !== right.unreadCount ||
+      left.latestMessage?.id !== right.latestMessage?.id ||
+      left.profile?.id !== right.profile?.id
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function repairMatchesInBackground(currentUserId: string, otherUserIds: string[]) {
+  if (!currentUserId || otherUserIds.length === 0) return;
+
+  Promise.allSettled(
+    otherUserIds.flatMap((otherUserId) => [
+      supabase
+        .from('matches')
+        .update({ is_match: true })
+        .eq('user_id', currentUserId)
+        .eq('target_id', otherUserId)
+        .in('action', ['contact', 'like']),
+      supabase
+        .from('matches')
+        .update({ is_match: true })
+        .eq('user_id', otherUserId)
+        .eq('target_id', currentUserId)
+        .in('action', ['contact', 'like']),
+    ])
+  ).catch(() => {
+    // ignore
+  });
+}
+
+const ChatRow = memo(function ChatRow({
+  item,
+  currentUserId,
+  onOpenConversation,
+  onOpenProfile,
+}: {
+  item: ChatListItem;
+  currentUserId: string;
+  onOpenConversation: (conversationKey: string) => void;
+  onOpenProfile: (userId: string) => void;
+}) {
+  const profile = item.profile;
+  const firstActivity = (profile?.activities ?? [])[0] || 'Aktivitet';
+  const avatarEmoji = getAvatarEmoji(firstActivity, profile?.avatar_emoji);
+  const preview = getMessagePreview(item.latestMessage, currentUserId);
+  const timeText = formatTime(item.latestMessage?.created_at || item.createdAt);
+  const targetUserId = profile?.id || '';
+
+  return (
+    <View style={styles.chatCard}>
+      <Pressable
+        style={({ pressed }) => [styles.avatarPress, pressed && styles.sectionPressed]}
+        onPress={() => targetUserId && onOpenProfile(targetUserId)}
+        disabled={!targetUserId}
+      >
+        <WithUAvatar emoji={avatarEmoji} size={64} />
+      </Pressable>
+
+      <View style={styles.centerCol}>
+        <Pressable
+          style={({ pressed }) => [
+            styles.profilePressArea,
+            pressed && styles.sectionPressedSoft,
+          ]}
+          onPress={() => targetUserId && onOpenProfile(targetUserId)}
+          disabled={!targetUserId}
+        >
+          <Text style={styles.chatName}>
+            {profile?.name || 'Match'}
+            {profile?.age ? `, ${profile.age}` : ''}
+          </Text>
+
+          <Text style={styles.chatMeta}>
+            {profile?.city || 'Plats saknas'}
+            {firstActivity ? ` · ${firstActivity}` : ''}
+          </Text>
+        </Pressable>
+
+        <Pressable
+          style={({ pressed }) => [
+            styles.previewPressArea,
+            pressed && styles.sectionPressedSoft,
+          ]}
+          onPress={() => onOpenConversation(item.conversationKey)}
+        >
+          <Text
+            style={[
+              styles.chatPreview,
+              item.unreadCount > 0 && styles.chatPreviewUnread,
+            ]}
+            numberOfLines={2}
+          >
+            {preview}
+          </Text>
+        </Pressable>
+      </View>
+
+      <Pressable
+        style={({ pressed }) => [styles.rightCol, pressed && styles.sectionPressed]}
+        onPress={() => onOpenConversation(item.conversationKey)}
+      >
+        {!!timeText && <Text style={styles.timeText}>{timeText}</Text>}
+
+        {item.unreadCount > 0 ? (
+          <View style={styles.unreadBubble}>
+            <Text style={styles.unreadBubbleText}>
+              {item.unreadCount > 9 ? '9+' : item.unreadCount}
+            </Text>
+          </View>
+        ) : (
+          <Text style={styles.chevron}>›</Text>
+        )}
+      </Pressable>
+    </View>
+  );
+});
+
 export default function ChatListScreen() {
   const router = useRouter();
 
@@ -139,7 +325,10 @@ export default function ChatListScreen() {
 
       const {
         data: { user },
+        error: userError,
       } = await supabase.auth.getUser();
+
+      if (userError) throw userError;
 
       if (!user) {
         setCurrentUserId('');
@@ -150,95 +339,160 @@ export default function ChatListScreen() {
 
       setCurrentUserId(user.id);
 
-      const { data: blockedRows, error: blockedError } = await supabase
-        .from('blocked_users')
-        .select('blockerad_av, blockerad')
-        .or(`blockerad_av.eq.${user.id},blockerad.eq.${user.id}`);
+      const [
+        { data: outgoingRows, error: outgoingError },
+        { data: incomingRows, error: incomingError },
+        { data: blockedRows, error: blockedError },
+        { data: hiddenRows, error: hiddenError },
+      ] = await Promise.all([
+        supabase
+          .from('matches')
+          .select('id, user_id, target_id, action, is_match, created_at')
+          .eq('user_id', user.id)
+          .in('action', ['contact', 'like']),
+        supabase
+          .from('matches')
+          .select('id, user_id, target_id, action, is_match, created_at')
+          .eq('target_id', user.id)
+          .in('action', ['contact', 'like']),
+        supabase
+          .from('blocked_users')
+          .select('blockerad_av, blockerad')
+          .or(`blockerad_av.eq.${user.id},blockerad.eq.${user.id}`),
+        supabase
+          .from('hidden_conversations')
+          .select('conversation_key')
+          .eq('user_id', user.id),
+      ]);
 
+      if (outgoingError) throw outgoingError;
+      if (incomingError) throw incomingError;
       if (blockedError) throw blockedError;
-
-      const blockedIds = new Set(
-        (blockedRows ?? [])
-          .map((row: any) =>
-            row.blockerad_av === user.id ? row.blockerad : row.blockerad_av
-          )
-          .filter(Boolean)
-      );
-
-      const { data: hiddenRows, error: hiddenError } = await supabase
-        .from('hidden_chats')
-        .select('match_id')
-        .eq('user_id', user.id);
-
       if (hiddenError) throw hiddenError;
 
-      const hiddenMatchIds = new Set(
-        ((hiddenRows ?? []) as HiddenChatRow[]).map((row) => row.match_id)
+      const outgoing = (outgoingRows ?? []) as MatchRow[];
+      const incoming = (incomingRows ?? []) as MatchRow[];
+
+      const outgoingIds = new Set(outgoing.map((row) => row.target_id));
+      const mutualIds = [...new Set(incoming.map((row) => row.user_id))].filter((id) =>
+        outgoingIds.has(id)
       );
 
-      const { data: matchRows, error: matchError } = await supabase
-        .from('matches')
-        .select('id, user_id, target_id, is_match, created_at')
-        .eq('user_id', user.id)
-        .eq('is_match', true)
-        .order('created_at', { ascending: false });
+      const matchedIds = new Set(
+        outgoing.filter((row) => row.is_match === true).map((row) => row.target_id)
+      );
 
-      if (matchError) throw matchError;
+      mutualIds.forEach((id) => matchedIds.add(id));
 
-      const ownMatches = ((matchRows ?? []) as MatchRow[])
-        .filter((row) => !blockedIds.has(row.target_id))
-        .filter((row) => !hiddenMatchIds.has(row.id));
+      const needRepairIds = mutualIds.filter(
+        (id) => !outgoing.some((row) => row.target_id === id && row.is_match === true)
+      );
+      repairMatchesInBackground(user.id, needRepairIds);
 
-      if (ownMatches.length === 0) {
-        setItems([]);
+      const matchedOutgoing = outgoing.filter((row) => matchedIds.has(row.target_id));
+
+      if (matchedOutgoing.length === 0) {
+        setItems((prev) => (prev.length === 0 ? prev : []));
         return;
       }
 
-      const targetIds = ownMatches.map((row) => row.target_id);
-      const matchIds = ownMatches.map((row) => row.id);
+      const groupedByTarget = new Map<string, MatchRow[]>();
+      matchedOutgoing.forEach((match) => {
+        const list = groupedByTarget.get(match.target_id) ?? [];
+        list.push(match);
+        groupedByTarget.set(match.target_id, list);
+      });
 
-      const { data: profileRows, error: profileError } = await supabase
-        .from('profiles')
-        .select('id, name, age, city, activities, avatar_emoji, is_bankid_verified')
-        .in('id', targetIds);
+      const bestMatches = [...groupedByTarget.values()]
+        .map((rows) => pickBestMatch(rows))
+        .filter(Boolean) as MatchRow[];
+
+      if (bestMatches.length === 0) {
+        setItems((prev) => (prev.length === 0 ? prev : []));
+        return;
+      }
+
+      const blockedIds = new Set(
+        ((blockedRows ?? []) as BlockedRow[])
+          .map((row) => (row.blockerad_av === user.id ? row.blockerad : row.blockerad_av))
+          .filter(Boolean) as string[]
+      );
+
+      const hiddenConversationKeys = new Set(
+        ((hiddenRows ?? []) as HiddenConversationRow[])
+          .map((row) => row.conversation_key)
+          .filter(Boolean) as string[]
+      );
+
+      const visibleMatches = bestMatches.filter((match) => {
+        const conversationKey = makeConversationKey(user.id, match.target_id);
+        return !blockedIds.has(match.target_id) && !hiddenConversationKeys.has(conversationKey);
+      });
+
+      if (visibleMatches.length === 0) {
+        setItems((prev) => (prev.length === 0 ? prev : []));
+        return;
+      }
+
+      const targetIds = [...new Set(visibleMatches.map((row) => row.target_id))];
+      const conversationKeys = visibleMatches.map((row) =>
+        makeConversationKey(user.id, row.target_id)
+      );
+
+      const [
+        { data: profileRows, error: profileError },
+        { data: messageRows, error: messageError },
+      ] = await Promise.all([
+        supabase
+          .from('profiles')
+          .select('id, name, age, city, activities, avatar_emoji, is_bankid_verified')
+          .in('id', targetIds),
+        supabase
+          .from('messages')
+          .select(
+            'id, conversation_key, sender_id, content, message_type, media_url, read_at, created_at'
+          )
+          .in('conversation_key', conversationKeys)
+          .order('created_at', { ascending: false }),
+      ]);
 
       if (profileError) throw profileError;
+      if (messageError) throw messageError;
 
       const profileMap = new Map<string, ProfileRow>();
       ((profileRows ?? []) as ProfileRow[]).forEach((profile) => {
         profileMap.set(profile.id, profile);
       });
 
-      const { data: messageRows, error: messageError } = await supabase
-        .from('messages')
-        .select('id, match_id, sender_id, content, message_type, media_url, read_at, created_at')
-        .in('match_id', matchIds)
-        .order('created_at', { ascending: false });
+      const latestMessageByConversation = new Map<string, MessageRow>();
+      const unreadCountByConversation = new Map<string, number>();
 
-      if (messageError) throw messageError;
-
-      const messagesByMatch = new Map<string, MessageRow[]>();
       ((messageRows ?? []) as MessageRow[]).forEach((message) => {
-        const list = messagesByMatch.get(message.match_id) ?? [];
-        list.push(message);
-        messagesByMatch.set(message.match_id, list);
+        if (!message.conversation_key) return;
+
+        if (!latestMessageByConversation.has(message.conversation_key)) {
+          latestMessageByConversation.set(message.conversation_key, message);
+        }
+
+        if (message.sender_id !== user.id && !message.read_at) {
+          unreadCountByConversation.set(
+            message.conversation_key,
+            (unreadCountByConversation.get(message.conversation_key) ?? 0) + 1
+          );
+        }
       });
 
-      const builtItems: ChatListItem[] = ownMatches
+      const builtItems: ChatListItem[] = visibleMatches
         .map((match) => {
-          const profile = profileMap.get(match.target_id) ?? null;
-          const messages = messagesByMatch.get(match.id) ?? [];
-          const latestMessage = messages.length > 0 ? messages[0] : null;
-          const unreadCount = messages.filter(
-            (message) => message.sender_id !== user.id && !message.read_at
-          ).length;
+          const conversationKey = makeConversationKey(user.id, match.target_id);
 
           return {
             matchId: match.id,
+            conversationKey,
             createdAt: match.created_at,
-            profile,
-            latestMessage,
-            unreadCount,
+            profile: profileMap.get(match.target_id) ?? null,
+            latestMessage: latestMessageByConversation.get(conversationKey) ?? null,
+            unreadCount: unreadCountByConversation.get(conversationKey) ?? 0,
           };
         })
         .sort((a, b) => {
@@ -247,7 +501,7 @@ export default function ChatListScreen() {
           return new Date(bTime).getTime() - new Date(aTime).getTime();
         });
 
-      setItems(builtItems);
+      setItems((prev) => (shallowSameItems(prev, builtItems) ? prev : builtItems));
     } catch (error: any) {
       setItems([]);
       setErrorText(error?.message || 'Kunde inte ladda chattar.');
@@ -258,16 +512,12 @@ export default function ChatListScreen() {
     useCallback(() => {
       if (!hasLoadedOnce.current) {
         setLoading(true);
-
         loadChats().finally(() => {
           setLoading(false);
-          setRefreshing(false);
           hasLoadedOnce.current = true;
         });
       } else {
-        loadChats().finally(() => {
-          setRefreshing(false);
-        });
+        loadChats();
       }
     }, [loadChats])
   );
@@ -282,6 +532,34 @@ export default function ChatListScreen() {
     return items.reduce((sum, item) => sum + item.unreadCount, 0);
   }, [items]);
 
+  const subtitleText = useMemo(() => {
+    if (items.length === 0) return 'Inga konversationer ännu';
+    if (unreadTotal > 0) return `${unreadTotal} olästa meddelanden`;
+    return `${items.length} aktiva konversationer`;
+  }, [items.length, unreadTotal]);
+
+  const openConversation = useCallback(
+    (conversationKey: string) => {
+      router.push({
+        pathname: '/chat/[conversationKey]',
+        params: { conversationKey },
+      });
+    },
+    [router]
+  );
+
+  const openProfile = useCallback(
+    (userId: string) => {
+      if (!userId) return;
+
+      router.push({
+        pathname: '/user/[userId]',
+        params: { userId },
+      });
+    },
+    [router]
+  );
+
   if (loading) {
     return (
       <WithUScreen>
@@ -294,28 +572,7 @@ export default function ChatListScreen() {
           <View style={styles.stateCard}>
             <ActivityIndicator size="large" color={withuColors.coral} />
             <Text style={styles.stateTitle}>Laddar chattar...</Text>
-            <Text style={styles.stateText}>
-              Vi hämtar dina konversationer och senaste meddelanden.
-            </Text>
-          </View>
-        </WithUPage>
-      </WithUScreen>
-    );
-  }
-
-  if (errorText) {
-    return (
-      <WithUScreen>
-        <WithUTopBar
-          title="WithU"
-          subtitle="Du är aldrig ensam."
-          right={<WithUAvatar emoji="😊" size={34} />}
-        />
-        <WithUPage style={styles.pageOnly}>
-          <View style={styles.stateCard}>
-            <Text style={styles.stateTitle}>Chatt kunde inte laddas</Text>
-            <Text style={styles.stateText}>{errorText}</Text>
-            <WithUPrimaryButton title="Försök igen" onPress={handleRefresh} />
+            <Text style={styles.stateText}>Vi hämtar dina konversationer.</Text>
           </View>
         </WithUPage>
       </WithUScreen>
@@ -330,147 +587,82 @@ export default function ChatListScreen() {
         right={<WithUAvatar emoji="😊" size={34} />}
       />
 
-      <ScrollView
+      <FlatList
+        data={items}
+        keyExtractor={(item) => `${item.matchId}-${item.conversationKey}`}
         style={styles.scroll}
-        contentContainerStyle={styles.content}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
-        }
+        contentContainerStyle={items.length === 0 ? styles.emptyContent : styles.content}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
         showsVerticalScrollIndicator={false}
-      >
-        <WithUPage style={styles.page}>
-          <View style={styles.heroBlock}>
-            <Text style={styles.heroTitle}>Chatt</Text>
-            <Text style={styles.heroSubtitle}>
-              {items.length === 0
-                ? 'Inga konversationer ännu'
-                : unreadTotal > 0
-                ? `${unreadTotal} olästa meddelanden`
-                : `${items.length} aktiva konversationer`}
-            </Text>
-          </View>
-
-          <WithUPrimaryButton
-            title={refreshing ? 'Uppdaterar...' : 'Uppdatera'}
-            onPress={handleRefresh}
-            disabled={refreshing}
-            style={styles.refreshButton}
-          />
-
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionEmoji}>📨</Text>
-            <Text style={styles.sectionTitle}>Dina samtal</Text>
-          </View>
-
-          {items.length === 0 ? (
-            <WithUCard>
-              <Text style={styles.emptyTitle}>Inga chattar ännu</Text>
-              <Text style={styles.emptyText}>
-                När du får en match och börjar skriva dyker konversationen upp här.
-              </Text>
-            </WithUCard>
-          ) : (
-            <View style={styles.listWrap}>
-              {items.map((item) => {
-                const profile = item.profile;
-                const firstActivity = (profile?.activities ?? [])[0] || 'Aktivitet';
-                const avatarEmoji = getAvatarEmoji(firstActivity, profile?.avatar_emoji);
-                const preview = getMessagePreview(item.latestMessage, currentUserId);
-                const timeText = formatTime(
-                  item.latestMessage?.created_at || item.createdAt
-                );
-
-                return (
-                  <Pressable
-                    key={item.matchId}
-                    onPress={() =>
-                      router.push({
-                        pathname: '/chat/[matchId]',
-                        params: { matchId: item.matchId },
-                      })
-                    }
-                    style={({ pressed }) => [
-                      styles.chatCard,
-                      pressed && styles.chatCardPressed,
-                    ]}
-                  >
-                    <View style={styles.chatCardLeft}>
-                      <WithUAvatar emoji={avatarEmoji} size={64} />
-                    </View>
-
-                    <View style={styles.chatCardCenter}>
-                      <View style={styles.nameRow}>
-                        <Text style={styles.chatName}>
-                          {profile?.name || 'Match'}
-                          {profile?.age ? `, ${profile.age}` : ''}
-                        </Text>
-
-                        {profile?.is_bankid_verified ? (
-                          <WithUBadge
-                            title="✓ BankID"
-                            variant="verified"
-                            style={styles.inlineBadge}
-                          />
-                        ) : null}
-                      </View>
-
-                      <Text
-                        style={[
-                          styles.chatPreview,
-                          item.unreadCount > 0 && styles.chatPreviewUnread,
-                        ]}
-                        numberOfLines={2}
-                      >
-                        {preview}
-                      </Text>
-
-                      <Text style={styles.chatMeta}>
-                        {profile?.city || 'Plats saknas'}
-                        {firstActivity ? ` · ${firstActivity}` : ''}
-                      </Text>
-                    </View>
-
-                    <View style={styles.chatCardRight}>
-                      {!!timeText && <Text style={styles.timeText}>{timeText}</Text>}
-
-                      {item.unreadCount > 0 ? (
-                        <View style={styles.unreadBubble}>
-                          <Text style={styles.unreadBubbleText}>
-                            {item.unreadCount > 9 ? '9+' : item.unreadCount}
-                          </Text>
-                        </View>
-                      ) : (
-                        <Text style={styles.chevron}>›</Text>
-                      )}
-                    </View>
-                  </Pressable>
-                );
-              })}
+        initialNumToRender={10}
+        windowSize={8}
+        removeClippedSubviews
+        ListHeaderComponent={
+          <WithUPage style={styles.page}>
+            <View style={styles.heroBlock}>
+              <Text style={styles.heroTitle}>Chatt</Text>
+              <Text style={styles.heroSubtitle}>{subtitleText}</Text>
             </View>
-          )}
-        </WithUPage>
-      </ScrollView>
+
+            <Pressable
+              style={[styles.refreshButton, refreshing && styles.buttonDisabled]}
+              onPress={handleRefresh}
+              disabled={refreshing}
+            >
+              <Text style={styles.refreshButtonText}>
+                {refreshing ? 'Uppdaterar...' : 'Uppdatera'}
+              </Text>
+            </Pressable>
+
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionEmoji}>📨</Text>
+              <Text style={styles.sectionTitle}>Dina samtal</Text>
+            </View>
+
+            {errorText ? (
+              <View style={styles.stateCard}>
+                <Text style={styles.stateTitle}>Något gick fel</Text>
+                <Text style={styles.stateText}>{errorText}</Text>
+              </View>
+            ) : null}
+          </WithUPage>
+        }
+        ListEmptyComponent={
+          !errorText ? (
+            <WithUPage>
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyTitle}>Inga chattar ännu</Text>
+                <Text style={styles.emptyText}>
+                  När du får en match och börjar skriva dyker konversationen upp här.
+                </Text>
+              </View>
+            </WithUPage>
+          ) : null
+        }
+        renderItem={({ item }) => (
+          <WithUPage style={styles.rowPage}>
+            <ChatRow
+              item={item}
+              currentUserId={currentUserId}
+              onOpenConversation={openConversation}
+              onOpenProfile={openProfile}
+            />
+          </WithUPage>
+        )}
+      />
     </WithUScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll: {
-    flex: 1,
-    backgroundColor: withuColors.cream,
-  },
-  content: {
-    paddingBottom: 36,
-  },
-  page: {
-    paddingTop: withuSpacing.lg,
-  },
-  pageOnly: {
-    paddingTop: withuSpacing.xl,
-  },
-  heroBlock: {
-    marginBottom: 12,
-  },
+  scroll: { flex: 1, backgroundColor: withuColors.cream },
+  content: { paddingBottom: 36 },
+  emptyContent: { paddingBottom: 36, flexGrow: 1 },
+  page: { paddingTop: withuSpacing.lg },
+  rowPage: { paddingTop: 0 },
+  pageOnly: { paddingTop: withuSpacing.xl },
+
+  heroBlock: { marginBottom: 12 },
   heroTitle: {
     fontSize: 34,
     fontWeight: '900',
@@ -481,9 +673,24 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: withuColors.muted,
   },
+
   refreshButton: {
+    backgroundColor: withuColors.coral,
+    borderRadius: 999,
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 18,
   },
+  refreshButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -498,9 +705,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: '#1E6958',
   },
-  listWrap: {
-    gap: 12,
-  },
+
   chatCard: {
     backgroundColor: withuColors.white,
     borderRadius: withuRadius.xl,
@@ -509,37 +714,51 @@ const styles = StyleSheet.create({
     padding: withuSpacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 12,
     ...withuShadows.card,
   },
-  chatCardPressed: {
-    opacity: 0.9,
-  },
-  chatCardLeft: {
+
+  avatarPress: {
     marginRight: 14,
+    borderRadius: 999,
   },
-  chatCardCenter: {
+
+  centerCol: {
     flex: 1,
   },
-  chatCardRight: {
+
+  profilePressArea: {
+    borderRadius: 12,
+    paddingVertical: 2,
+    marginBottom: 4,
+  },
+
+  previewPressArea: {
+    borderRadius: 12,
+    paddingVertical: 4,
+  },
+
+  rightCol: {
     alignItems: 'flex-end',
     justifyContent: 'space-between',
     minHeight: 76,
     marginLeft: 12,
+    borderRadius: 12,
+    paddingLeft: 4,
   },
-  nameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    marginBottom: 4,
+
+  sectionPressed: {
+    opacity: 0.7,
   },
+  sectionPressedSoft: {
+    opacity: 0.82,
+  },
+
   chatName: {
     fontSize: 20,
     fontWeight: '900',
     color: withuColors.navy,
-    marginRight: 8,
-  },
-  inlineBadge: {
-    marginTop: 2,
+    marginBottom: 4,
   },
   chatPreview: {
     fontSize: 15,
@@ -555,6 +774,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: withuColors.muted,
   },
+
   timeText: {
     fontSize: 13,
     color: withuColors.muted,
@@ -581,6 +801,16 @@ const styles = StyleSheet.create({
     color: withuColors.muted,
     fontWeight: '400',
   },
+
+  emptyCard: {
+    backgroundColor: withuColors.white,
+    borderRadius: withuRadius.xl,
+    borderWidth: 1,
+    borderColor: withuColors.line,
+    padding: withuSpacing.xxl,
+    alignItems: 'center',
+    ...withuShadows.card,
+  },
   emptyTitle: {
     fontSize: 26,
     fontWeight: '900',
@@ -594,6 +824,7 @@ const styles = StyleSheet.create({
     color: '#555555',
     textAlign: 'center',
   },
+
   stateCard: {
     backgroundColor: withuColors.white,
     borderRadius: withuRadius.xl,
@@ -607,7 +838,6 @@ const styles = StyleSheet.create({
     color: withuColors.navy,
     fontSize: 26,
     fontWeight: '900',
-    marginTop: 14,
     marginBottom: 10,
     textAlign: 'center',
   },
@@ -616,6 +846,5 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 24,
     textAlign: 'center',
-    marginBottom: 20,
   },
 });

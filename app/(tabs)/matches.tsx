@@ -1,9 +1,9 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { memo, useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  FlatList,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -19,14 +19,8 @@ import {
 } from '../../src/theme/withuTheme';
 import {
   WithUAvatar,
-  WithUBadge,
-  WithUCard,
   WithUPage,
-  WithUPrimaryButton,
-  WithUSectionLabel,
   WithUScreen,
-  WithUSubtitle,
-  WithUTitle,
   WithUTopBar,
 } from '../../src/components/withu/WithUPrimitives';
 
@@ -34,8 +28,8 @@ type MatchRow = {
   id: string;
   user_id: string;
   target_id: string;
+  action: string | null;
   is_match: boolean | null;
-  action?: string | null;
   created_at: string | null;
 };
 
@@ -47,26 +41,29 @@ type ProfileRow = {
   activities: string[] | null;
   avatar_emoji: string | null;
   is_bankid_verified: boolean | null;
+  bio: string | null;
 };
 
 type MessageRow = {
   id: string;
-  match_id: string;
+  conversation_key: string | null;
   sender_id: string | null;
   content: string | null;
   message_type: string | null;
-  media_url: string | null;
-  read_at: string | null;
   created_at: string | null;
 };
 
 type MatchListItem = {
   matchId: string;
-  createdAt: string | null;
+  conversationKey: string;
   profile: ProfileRow | null;
   latestMessage: MessageRow | null;
-  unreadCount: number;
+  createdAt: string | null;
 };
+
+function makeConversationKey(a: string, b: string) {
+  return [a, b].sort().join('__');
+}
 
 function getAvatarEmoji(activity?: string, fallback?: string | null) {
   if (fallback && fallback.trim()) return fallback;
@@ -74,11 +71,42 @@ function getAvatarEmoji(activity?: string, fallback?: string | null) {
   const value = (activity || '').toLowerCase();
 
   if (value.includes('kafé') || value.includes('fika') || value.includes('lunch')) return '☕';
-  if (value.includes('promenad') || value.includes('löpning') || value.includes('cykling')) return '🚶';
-  if (value.includes('plug') || value.includes('studie') || value.includes('språk') || value.includes('läxhjälp')) return '📚';
-  if (value.includes('brädspel') || value.includes('rollspel') || value.includes('escape') || value.includes('dataspel') || value.includes('spela')) return '🎲';
-  if (value.includes('yoga') || value.includes('gym') || value.includes('träning') || value.includes('padel')) return '💪';
-  if (value.includes('konsert') || value.includes('film') || value.includes('utställning') || value.includes('foto')) return '🎬';
+  if (value.includes('promenad') || value.includes('löpning') || value.includes('cykling')) {
+    return '🚶';
+  }
+  if (
+    value.includes('plug') ||
+    value.includes('studie') ||
+    value.includes('språk') ||
+    value.includes('läxhjälp')
+  ) {
+    return '📚';
+  }
+  if (
+    value.includes('brädspel') ||
+    value.includes('rollspel') ||
+    value.includes('escape') ||
+    value.includes('dataspel') ||
+    value.includes('spela')
+  ) {
+    return '🎲';
+  }
+  if (
+    value.includes('yoga') ||
+    value.includes('gym') ||
+    value.includes('träning') ||
+    value.includes('padel')
+  ) {
+    return '💪';
+  }
+  if (
+    value.includes('konsert') ||
+    value.includes('film') ||
+    value.includes('utställning') ||
+    value.includes('foto')
+  ) {
+    return '🎬';
+  }
   if (value.includes('musik')) return '🎵';
   if (value.includes('telefon')) return '📞';
   if (value.includes('kultur')) return '🌍';
@@ -87,38 +115,128 @@ function getAvatarEmoji(activity?: string, fallback?: string | null) {
   return '🙂';
 }
 
-function getMessagePreview(message: MessageRow | null) {
-  if (!message) return 'Tryck för att öppna chatten';
-  if (message.message_type === 'image') return '📷 Bild';
-  if (message.message_type === 'audio') return '🎤 Röstmeddelande';
+function getMessagePreview(message: MessageRow | null, currentUserId: string) {
+  if (!message) return 'Ny match — öppna chatten';
 
-  const text = message.content?.trim();
-  return text || 'Tryck för att öppna chatten';
+  const isMine = message.sender_id === currentUserId;
+
+  let baseText = '';
+  if (message.message_type === 'image') baseText = '📷 Bild';
+  else if (message.message_type === 'audio') baseText = '🎤 Röstmeddelande';
+  else baseText = message.content?.trim() || 'Meddelande';
+
+  return isMine ? `Du: ${baseText}` : baseText;
 }
 
-function formatMatchTime(value?: string | null) {
+function formatDate(value?: string | null) {
   if (!value) return '';
 
-  const date = new Date(value);
-  const now = new Date();
-
-  const sameDay =
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() &&
-    date.getDate() === now.getDate();
-
-  if (sameDay) {
-    return date.toLocaleTimeString('sv-SE', {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  }
-
-  return date.toLocaleDateString('sv-SE', {
+  return new Date(value).toLocaleDateString('sv-SE', {
     day: 'numeric',
     month: 'short',
   });
 }
+
+function shallowSameItems(a: MatchListItem[], b: MatchListItem[]) {
+  if (a.length !== b.length) return false;
+
+  for (let i = 0; i < a.length; i += 1) {
+    const left = a[i];
+    const right = b[i];
+
+    if (
+      left.matchId !== right.matchId ||
+      left.conversationKey !== right.conversationKey ||
+      left.createdAt !== right.createdAt ||
+      left.profile?.id !== right.profile?.id ||
+      left.latestMessage?.id !== right.latestMessage?.id
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+const MatchRowCard = memo(function MatchRowCard({
+  item,
+  currentUserId,
+  onOpenProfile,
+  onOpenChat,
+}: {
+  item: MatchListItem;
+  currentUserId: string;
+  onOpenProfile: (userId: string) => void;
+  onOpenChat: (conversationKey: string) => void;
+}) {
+  const profile = item.profile;
+  const firstActivity = (profile?.activities ?? [])[0] || 'Bara prata';
+  const avatarEmoji = getAvatarEmoji(firstActivity, profile?.avatar_emoji);
+  const preview = getMessagePreview(item.latestMessage, currentUserId);
+  const timeText = formatDate(item.latestMessage?.created_at || item.createdAt);
+  const targetUserId = profile?.id || '';
+
+  return (
+    <View style={styles.matchCard}>
+      <Pressable
+        style={({ pressed }) => [styles.leftCol, pressed && styles.sectionPressed]}
+        onPress={() => targetUserId && onOpenProfile(targetUserId)}
+        disabled={!targetUserId}
+      >
+        <WithUAvatar emoji={avatarEmoji} size={74} />
+      </Pressable>
+
+      <View style={styles.centerCol}>
+        <Pressable
+          style={({ pressed }) => [
+            styles.profilePressArea,
+            pressed && styles.sectionPressedSoft,
+          ]}
+          onPress={() => targetUserId && onOpenProfile(targetUserId)}
+          disabled={!targetUserId}
+        >
+          <Text style={styles.matchName}>
+            {profile?.name || 'Match'}
+            {profile?.age ? `, ${profile.age}` : ''}
+          </Text>
+
+          <Text style={styles.metaText}>
+            {profile?.city || 'Plats saknas'}
+            {firstActivity ? ` · ${firstActivity}` : ''}
+          </Text>
+
+          <View style={styles.tagRow}>
+            {(profile?.activities ?? []).slice(0, 3).map((activity) => (
+              <View key={activity} style={styles.tagPill}>
+                <Text style={styles.tagText}>{activity}</Text>
+              </View>
+            ))}
+          </View>
+        </Pressable>
+
+        <Pressable
+          style={({ pressed }) => [
+            styles.previewPressArea,
+            pressed && styles.sectionPressedSoft,
+          ]}
+          onPress={() => onOpenChat(item.conversationKey)}
+        >
+          <Text style={styles.previewText} numberOfLines={1}>
+            {preview}
+          </Text>
+        </Pressable>
+      </View>
+
+      <Pressable
+        style={({ pressed }) => [styles.rightCol, pressed && styles.sectionPressed]}
+        onPress={() => onOpenChat(item.conversationKey)}
+      >
+        {!!timeText && <Text style={styles.timeText}>{timeText}</Text>}
+        <Text style={styles.chevron}>›</Text>
+      </Pressable>
+    </View>
+  );
+});
 
 export default function MatchesScreen() {
   const router = useRouter();
@@ -128,6 +246,7 @@ export default function MatchesScreen() {
   const [errorText, setErrorText] = useState('');
   const [currentUserId, setCurrentUserId] = useState('');
   const [items, setItems] = useState<MatchListItem[]>([]);
+  const hasLoadedOnce = useRef(false);
 
   const loadMatches = useCallback(async () => {
     try {
@@ -135,7 +254,10 @@ export default function MatchesScreen() {
 
       const {
         data: { user },
+        error: userError,
       } = await supabase.auth.getUser();
+
+      if (userError) throw userError;
 
       if (!user) {
         setCurrentUserId('');
@@ -146,84 +268,119 @@ export default function MatchesScreen() {
 
       setCurrentUserId(user.id);
 
-      const { data: blockedRows, error: blockedError } = await supabase
-        .from('blocked_users')
-        .select('blockerad_av, blockerad')
-        .or(`blockerad_av.eq.${user.id},blockerad.eq.${user.id}`);
+      const [
+        { data: outgoingRows, error: outgoingError },
+        { data: incomingRows, error: incomingError },
+      ] = await Promise.all([
+        supabase
+          .from('matches')
+          .select('id, user_id, target_id, action, is_match, created_at')
+          .eq('user_id', user.id)
+          .in('action', ['contact', 'like']),
+        supabase
+          .from('matches')
+          .select('id, user_id, target_id, action, is_match, created_at')
+          .eq('target_id', user.id)
+          .in('action', ['contact', 'like']),
+      ]);
 
-      if (blockedError) throw blockedError;
+      if (outgoingError) throw outgoingError;
+      if (incomingError) throw incomingError;
 
-      const blockedIds = new Set(
-        (blockedRows ?? [])
-          .map((row: any) =>
-            row.blockerad_av === user.id ? row.blockerad : row.blockerad_av
-          )
-          .filter(Boolean)
+      const outgoing = (outgoingRows ?? []) as MatchRow[];
+      const incoming = (incomingRows ?? []) as MatchRow[];
+
+      const outgoingIds = new Set(outgoing.map((row) => row.target_id));
+      const mutualIds = [...new Set(incoming.map((row) => row.user_id))].filter((id) =>
+        outgoingIds.has(id)
       );
 
-      const { data: matchRows, error: matchError } = await supabase
-        .from('matches')
-        .select('id, user_id, target_id, is_match, action, created_at')
-        .eq('user_id', user.id)
-        .eq('is_match', true)
-        .order('created_at', { ascending: false });
-
-      if (matchError) throw matchError;
-
-      const ownMatches = ((matchRows ?? []) as MatchRow[]).filter(
-        (row) => !blockedIds.has(row.target_id)
+      const matchedIds = new Set(
+        outgoing.filter((row) => row.is_match === true).map((row) => row.target_id)
       );
 
-      if (ownMatches.length === 0) {
-        setItems([]);
+      const needRepairIds = mutualIds.filter((id) => !matchedIds.has(id));
+
+      if (needRepairIds.length > 0) {
+        for (const otherUserId of needRepairIds) {
+          await Promise.all([
+            supabase
+              .from('matches')
+              .update({ is_match: true })
+              .eq('user_id', user.id)
+              .eq('target_id', otherUserId)
+              .in('action', ['contact', 'like']),
+            supabase
+              .from('matches')
+              .update({ is_match: true })
+              .eq('user_id', otherUserId)
+              .eq('target_id', user.id)
+              .in('action', ['contact', 'like']),
+          ]);
+
+          matchedIds.add(otherUserId);
+        }
+      }
+
+      const matchedOutgoing = outgoing.filter(
+        (row) => matchedIds.has(row.target_id) || row.is_match === true
+      );
+
+      if (matchedOutgoing.length === 0) {
+        setItems((prev) => (prev.length === 0 ? prev : []));
         return;
       }
 
-      const targetIds = ownMatches.map((row) => row.target_id);
-      const matchIds = ownMatches.map((row) => row.id);
+      const targetIds = [...new Set(matchedOutgoing.map((row) => row.target_id))];
+      const conversationKeys = matchedOutgoing.map((row) =>
+        makeConversationKey(user.id, row.target_id)
+      );
 
-      const { data: profileRows, error: profileError } = await supabase
-        .from('profiles')
-        .select('id, name, age, city, activities, avatar_emoji, is_bankid_verified')
-        .in('id', targetIds);
+      const [
+        { data: profileRows, error: profileError },
+        { data: messageRows, error: messageError },
+      ] = await Promise.all([
+        supabase
+          .from('profiles')
+          .select(
+            'id, name, age, city, activities, avatar_emoji, is_bankid_verified, bio'
+          )
+          .in('id', targetIds),
+        supabase
+          .from('messages')
+          .select(
+            'id, conversation_key, sender_id, content, message_type, created_at'
+          )
+          .in('conversation_key', conversationKeys)
+          .order('created_at', { ascending: false }),
+      ]);
 
       if (profileError) throw profileError;
+      if (messageError) throw messageError;
 
       const profileMap = new Map<string, ProfileRow>();
       ((profileRows ?? []) as ProfileRow[]).forEach((profile) => {
         profileMap.set(profile.id, profile);
       });
 
-      const { data: messageRows, error: messageError } = await supabase
-        .from('messages')
-        .select('id, match_id, sender_id, content, message_type, media_url, read_at, created_at')
-        .in('match_id', matchIds)
-        .order('created_at', { ascending: false });
-
-      if (messageError) throw messageError;
-
-      const messagesByMatch = new Map<string, MessageRow[]>();
+      const latestMessageByConversation = new Map<string, MessageRow>();
       ((messageRows ?? []) as MessageRow[]).forEach((message) => {
-        const list = messagesByMatch.get(message.match_id) ?? [];
-        list.push(message);
-        messagesByMatch.set(message.match_id, list);
+        if (!message.conversation_key) return;
+        if (!latestMessageByConversation.has(message.conversation_key)) {
+          latestMessageByConversation.set(message.conversation_key, message);
+        }
       });
 
-      const builtItems: MatchListItem[] = ownMatches
+      const builtItems: MatchListItem[] = matchedOutgoing
         .map((match) => {
-          const profile = profileMap.get(match.target_id) ?? null;
-          const messages = messagesByMatch.get(match.id) ?? [];
-          const latestMessage = messages.length > 0 ? messages[0] : null;
-          const unreadCount = messages.filter(
-            (message) => message.sender_id !== user.id && !message.read_at
-          ).length;
+          const conversationKey = makeConversationKey(user.id, match.target_id);
 
           return {
             matchId: match.id,
+            conversationKey,
+            profile: profileMap.get(match.target_id) ?? null,
+            latestMessage: latestMessageByConversation.get(conversationKey) ?? null,
             createdAt: match.created_at,
-            profile,
-            latestMessage,
-            unreadCount,
           };
         })
         .sort((a, b) => {
@@ -232,7 +389,7 @@ export default function MatchesScreen() {
           return new Date(bTime).getTime() - new Date(aTime).getTime();
         });
 
-      setItems(builtItems);
+      setItems((prev) => (shallowSameItems(prev, builtItems) ? prev : builtItems));
     } catch (error: any) {
       setItems([]);
       setErrorText(error?.message || 'Kunde inte ladda matcher.');
@@ -241,11 +398,15 @@ export default function MatchesScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      setLoading(true);
-      loadMatches().finally(() => {
-        setLoading(false);
-        setRefreshing(false);
-      });
+      if (!hasLoadedOnce.current) {
+        setLoading(true);
+        loadMatches().finally(() => {
+          setLoading(false);
+          hasLoadedOnce.current = true;
+        });
+      } else {
+        loadMatches();
+      }
     }, [loadMatches])
   );
 
@@ -255,10 +416,33 @@ export default function MatchesScreen() {
     setRefreshing(false);
   };
 
-  const matchCountText = useMemo(() => {
+  const countText = useMemo(() => {
+    if (items.length === 0) return 'Inga matcher ännu';
     if (items.length === 1) return '1 match';
     return `${items.length} matcher`;
   }, [items.length]);
+
+  const openProfile = useCallback(
+    (userId: string) => {
+      if (!userId) return;
+
+      router.push({
+        pathname: '/user/[userId]',
+        params: { userId },
+      });
+    },
+    [router]
+  );
+
+  const openChat = useCallback(
+    (conversationKey: string) => {
+      router.push({
+        pathname: '/chat/[conversationKey]',
+        params: { conversationKey },
+      });
+    },
+    [router]
+  );
 
   if (loading) {
     return (
@@ -272,28 +456,7 @@ export default function MatchesScreen() {
           <View style={styles.stateCard}>
             <ActivityIndicator size="large" color={withuColors.coral} />
             <Text style={styles.stateTitle}>Laddar matcher...</Text>
-            <Text style={styles.stateText}>
-              Vi hämtar dina matchningar och senaste konversationer.
-            </Text>
-          </View>
-        </WithUPage>
-      </WithUScreen>
-    );
-  }
-
-  if (errorText) {
-    return (
-      <WithUScreen>
-        <WithUTopBar
-          title="WithU"
-          subtitle="Du är aldrig ensam."
-          right={<WithUAvatar emoji="😊" size={34} />}
-        />
-        <WithUPage style={styles.pageOnly}>
-          <View style={styles.stateCard}>
-            <Text style={styles.stateTitle}>Matcher kunde inte laddas</Text>
-            <Text style={styles.stateText}>{errorText}</Text>
-            <WithUPrimaryButton title="Försök igen" onPress={handleRefresh} />
+            <Text style={styles.stateText}>Vi hämtar era kontakter.</Text>
           </View>
         </WithUPage>
       </WithUScreen>
@@ -308,135 +471,82 @@ export default function MatchesScreen() {
         right={<WithUAvatar emoji="😊" size={34} />}
       />
 
-      <ScrollView
+      <FlatList
+        data={items}
+        keyExtractor={(item) => `${item.matchId}-${item.conversationKey}`}
         style={styles.scroll}
-        contentContainerStyle={styles.content}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
-        }
+        contentContainerStyle={items.length === 0 ? styles.emptyContent : styles.content}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
         showsVerticalScrollIndicator={false}
-      >
-        <WithUPage style={styles.page}>
-          <View style={styles.heroBlock}>
-            <Text style={styles.heroTitle}>Matcher</Text>
-            <Text style={styles.heroSubtitle}>{matchCountText}</Text>
-          </View>
-
-          <WithUPrimaryButton
-            title={refreshing ? 'Uppdaterar...' : 'Uppdatera'}
-            onPress={handleRefresh}
-            disabled={refreshing}
-            style={styles.refreshButton}
-          />
-
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionEmoji}>💬</Text>
-            <Text style={styles.sectionTitle}>Konversationer</Text>
-          </View>
-
-          {items.length === 0 ? (
-            <WithUCard>
-              <Text style={styles.emptyTitle}>Inga matcher ännu</Text>
-              <Text style={styles.emptyText}>
-                När två personer gillar varandra hamnar matchen här och ni kan börja chatta direkt.
-              </Text>
-            </WithUCard>
-          ) : (
-            <View style={styles.listWrap}>
-              {items.map((item) => {
-                const profile = item.profile;
-                const firstActivity = (profile?.activities ?? [])[0] || 'Aktivitet';
-                const avatarEmoji = getAvatarEmoji(firstActivity, profile?.avatar_emoji);
-                const preview = getMessagePreview(item.latestMessage);
-                const timeText = formatMatchTime(
-                  item.latestMessage?.created_at || item.createdAt
-                );
-
-                return (
-                  <Pressable
-                    key={item.matchId}
-                    onPress={() =>
-                      router.push({
-                        pathname: '/chat/[matchId]',
-                        params: { matchId: item.matchId },
-                      })
-                    }
-                    style={({ pressed }) => [
-                      styles.matchCard,
-                      pressed && styles.matchCardPressed,
-                    ]}
-                  >
-                    <View style={styles.matchCardLeft}>
-                      <WithUAvatar emoji={avatarEmoji} size={64} />
-                    </View>
-
-                    <View style={styles.matchCardCenter}>
-                      <Text style={styles.matchName}>
-                        {profile?.name || 'Match'}
-                        {profile?.age ? `, ${profile.age}` : ''}
-                      </Text>
-
-                      <Text style={styles.matchPreview}>{preview}</Text>
-
-                      <Text style={styles.matchMeta}>
-                        {profile?.city || 'Plats saknas'}
-                        {firstActivity ? ` · ${firstActivity}` : ''}
-                      </Text>
-
-                      <View style={styles.tagsWrap}>
-                        {(profile?.activities ?? []).slice(0, 3).map((activity) => (
-                          <View key={`${item.matchId}-${activity}`} style={styles.tag}>
-                            <Text style={styles.tagText}>{activity}</Text>
-                          </View>
-                        ))}
-                      </View>
-                    </View>
-
-                    <View style={styles.matchCardRight}>
-                      {!!timeText && <Text style={styles.timeText}>{timeText}</Text>}
-
-                      {profile?.is_bankid_verified ? (
-                        <WithUBadge title="✓" variant="verified" style={styles.verifiedBadge} />
-                      ) : null}
-
-                      {item.unreadCount > 0 ? (
-                        <View style={styles.unreadBubble}>
-                          <Text style={styles.unreadBubbleText}>
-                            {item.unreadCount > 9 ? '9+' : item.unreadCount}
-                          </Text>
-                        </View>
-                      ) : (
-                        <Text style={styles.chevron}>›</Text>
-                      )}
-                    </View>
-                  </Pressable>
-                );
-              })}
+        initialNumToRender={10}
+        windowSize={8}
+        removeClippedSubviews
+        ListHeaderComponent={
+          <WithUPage style={styles.page}>
+            <View style={styles.heroBlock}>
+              <Text style={styles.heroTitle}>Matcher</Text>
+              <Text style={styles.heroSubtitle}>{countText}</Text>
             </View>
-          )}
-        </WithUPage>
-      </ScrollView>
+
+            <Pressable
+              style={[styles.refreshButton, refreshing && styles.buttonDisabled]}
+              onPress={handleRefresh}
+              disabled={refreshing}
+            >
+              <Text style={styles.refreshButtonText}>
+                {refreshing ? 'Uppdaterar...' : 'Uppdatera'}
+              </Text>
+            </Pressable>
+
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionEmoji}>💬</Text>
+              <Text style={styles.sectionTitle}>Konversationer</Text>
+            </View>
+
+            {errorText ? (
+              <View style={styles.stateCard}>
+                <Text style={styles.stateTitle}>Något gick fel</Text>
+                <Text style={styles.stateText}>{errorText}</Text>
+              </View>
+            ) : null}
+          </WithUPage>
+        }
+        ListEmptyComponent={
+          !errorText ? (
+            <WithUPage>
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyTitle}>Inga matcher ännu</Text>
+                <Text style={styles.emptyText}>
+                  När någon också vill ha kontakt dyker personen upp här.
+                </Text>
+              </View>
+            </WithUPage>
+          ) : null
+        }
+        renderItem={({ item }) => (
+          <WithUPage style={styles.rowPage}>
+            <MatchRowCard
+              item={item}
+              currentUserId={currentUserId}
+              onOpenProfile={openProfile}
+              onOpenChat={openChat}
+            />
+          </WithUPage>
+        )}
+      />
     </WithUScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll: {
-    flex: 1,
-    backgroundColor: withuColors.cream,
-  },
-  content: {
-    paddingBottom: 36,
-  },
-  page: {
-    paddingTop: withuSpacing.lg,
-  },
-  pageOnly: {
-    paddingTop: withuSpacing.xl,
-  },
-  heroBlock: {
-    marginBottom: 12,
-  },
+  scroll: { flex: 1, backgroundColor: withuColors.cream },
+  content: { paddingBottom: 36 },
+  emptyContent: { paddingBottom: 36, flexGrow: 1 },
+  page: { paddingTop: withuSpacing.lg },
+  rowPage: { paddingTop: 0 },
+  pageOnly: { paddingTop: withuSpacing.xl },
+
+  heroBlock: { marginBottom: 12 },
   heroTitle: {
     fontSize: 34,
     fontWeight: '900',
@@ -447,9 +557,24 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: withuColors.muted,
   },
+
   refreshButton: {
+    backgroundColor: withuColors.coral,
+    borderRadius: 999,
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 18,
   },
+  refreshButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -462,11 +587,9 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 22,
     fontWeight: '900',
-    color: '#C9781E',
+    color: '#C97C12',
   },
-  listWrap: {
-    gap: 12,
-  },
+
   matchCard: {
     backgroundColor: withuColors.white,
     borderRadius: withuRadius.xl,
@@ -475,86 +598,110 @@ const styles = StyleSheet.create({
     padding: withuSpacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 12,
     ...withuShadows.card,
   },
-  matchCardPressed: {
-    opacity: 0.9,
-  },
-  matchCardLeft: {
+
+  leftCol: {
     marginRight: 14,
+    borderRadius: 999,
   },
-  matchCardCenter: {
+
+  centerCol: {
     flex: 1,
   },
-  matchCardRight: {
+
+  profilePressArea: {
+    borderRadius: 14,
+    paddingVertical: 2,
+    marginBottom: 4,
+  },
+
+  previewPressArea: {
+    borderRadius: 14,
+    paddingVertical: 4,
+  },
+
+  rightCol: {
     alignItems: 'flex-end',
     justifyContent: 'space-between',
-    minHeight: 86,
+    minHeight: 90,
     marginLeft: 12,
+    borderRadius: 14,
+    paddingLeft: 4,
   },
+
+  sectionPressed: {
+    opacity: 0.72,
+  },
+
+  sectionPressedSoft: {
+    opacity: 0.84,
+  },
+
   matchName: {
     fontSize: 20,
     fontWeight: '900',
     color: withuColors.navy,
     marginBottom: 4,
   },
-  matchPreview: {
+
+  previewText: {
     fontSize: 15,
     lineHeight: 22,
     color: '#1E6958',
-    fontWeight: '700',
+    fontWeight: '800',
     marginBottom: 6,
   },
-  matchMeta: {
+
+  metaText: {
     fontSize: 14,
     color: withuColors.muted,
     marginBottom: 10,
   },
-  tagsWrap: {
+
+  tagRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
   },
-  tag: {
+
+  tagPill: {
     backgroundColor: withuColors.soft,
     borderRadius: 999,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 7,
   },
+
   tagText: {
     color: withuColors.navy,
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '800',
   },
+
   timeText: {
     fontSize: 13,
     color: withuColors.muted,
     fontWeight: '700',
-    marginBottom: 6,
-  },
-  verifiedBadge: {
     marginBottom: 8,
   },
-  unreadBubble: {
-    minWidth: 24,
-    height: 24,
-    borderRadius: 12,
-    paddingHorizontal: 6,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: withuColors.coral,
-  },
-  unreadBubbleText: {
-    color: withuColors.white,
-    fontSize: 11,
-    fontWeight: '900',
-  },
+
   chevron: {
-    fontSize: 34,
-    lineHeight: 34,
+    fontSize: 36,
+    lineHeight: 36,
     color: withuColors.muted,
-    fontWeight: '400',
   },
+
+  emptyCard: {
+    backgroundColor: withuColors.white,
+    borderRadius: withuRadius.xl,
+    borderWidth: 1,
+    borderColor: withuColors.line,
+    padding: withuSpacing.xxl,
+    alignItems: 'center',
+    ...withuShadows.card,
+  },
+
   emptyTitle: {
     fontSize: 26,
     fontWeight: '900',
@@ -562,12 +709,14 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     textAlign: 'center',
   },
+
   emptyText: {
     fontSize: 15,
     lineHeight: 24,
     color: '#555555',
     textAlign: 'center',
   },
+
   stateCard: {
     backgroundColor: withuColors.white,
     borderRadius: withuRadius.xl,
@@ -577,19 +726,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     ...withuShadows.card,
   },
+
   stateTitle: {
     color: withuColors.navy,
     fontSize: 26,
     fontWeight: '900',
-    marginTop: 14,
     marginBottom: 10,
     textAlign: 'center',
   },
+
   stateText: {
     color: '#555555',
     fontSize: 15,
     lineHeight: 24,
     textAlign: 'center',
-    marginBottom: 20,
   },
 });

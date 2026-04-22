@@ -13,33 +13,50 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { signInWithEmail } from '../src/lib/auth';
+import { signUpWithEmail } from '../src/lib/auth';
 
-export default function LoginScreen() {
+export default function RegisterScreen() {
   const router = useRouter();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const canSubmit = useMemo(() => {
-    return email.trim().length > 0 && password.length > 0 && !loading;
-  }, [email, password, loading]);
+    return (
+      email.trim().length > 0 &&
+      password.length > 0 &&
+      confirmPassword.length > 0 &&
+      !loading
+    );
+  }, [email, password, confirmPassword, loading]);
 
-  const handleLogin = async () => {
+  const handleRegister = async () => {
     if (!canSubmit) return;
 
     try {
       setLoading(true);
 
-      await signInWithEmail(email, password);
+      const result = await signUpWithEmail(email, password, confirmPassword);
 
+      if (result.needsEmailConfirmation) {
+        Alert.alert(
+          'Kolla din e-post',
+          'Vi har skickat en bekräftelselänk till din e-postadress. Bekräfta kontot och logga sedan in.'
+        );
+        router.replace('/login');
+        return;
+      }
+
+      Alert.alert('Klart', 'Ditt konto är skapat.');
       router.replace('/(tabs)');
     } catch (error: any) {
       Alert.alert(
-        'Kunde inte logga in',
-        error?.message || 'Kontrollera din e-post och ditt lösenord.'
+        'Kunde inte skapa konto',
+        error?.message || 'Något gick fel.'
       );
     } finally {
       setLoading(false);
@@ -67,9 +84,9 @@ export default function LoginScreen() {
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.title}>Välkommen tillbaka</Text>
+            <Text style={styles.title}>Skapa konto</Text>
             <Text style={styles.subtitle}>
-              Logga in med din e-postadress och ditt lösenord.
+              Registrera dig med din e-postadress och ett starkt lösenord.
             </Text>
 
             <Text style={styles.label}>E-post</Text>
@@ -83,8 +100,7 @@ export default function LoginScreen() {
               autoCapitalize="none"
               autoCorrect={false}
               autoComplete="email"
-              textContentType="username"
-              returnKeyType="next"
+              textContentType="emailAddress"
               editable={!loading}
               maxLength={120}
             />
@@ -95,16 +111,14 @@ export default function LoginScreen() {
                 style={styles.passwordInput}
                 value={password}
                 onChangeText={setPassword}
-                placeholder="Ditt lösenord"
+                placeholder="Minst 8 tecken"
                 placeholderTextColor="#7B8794"
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
                 autoCorrect={false}
-                autoComplete="password"
-                textContentType="password"
-                returnKeyType="done"
+                autoComplete="password-new"
+                textContentType="newPassword"
                 editable={!loading}
-                onSubmitEditing={handleLogin}
                 maxLength={128}
               />
 
@@ -121,28 +135,55 @@ export default function LoginScreen() {
               </Pressable>
             </View>
 
+            <Text style={styles.label}>Bekräfta lösenord</Text>
+            <View style={styles.passwordWrap}>
+              <TextInput
+                style={styles.passwordInput}
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                placeholder="Skriv lösenordet igen"
+                placeholderTextColor="#7B8794"
+                secureTextEntry={!showConfirmPassword}
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="password-new"
+                textContentType="newPassword"
+                editable={!loading}
+                maxLength={128}
+                onSubmitEditing={handleRegister}
+              />
+
+              <Pressable
+                style={styles.eyeButton}
+                onPress={() => setShowConfirmPassword((prev) => !prev)}
+                disabled={loading}
+              >
+                <Ionicons
+                  name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'}
+                  size={20}
+                  color="#5B6785"
+                />
+              </Pressable>
+            </View>
+
             <Pressable
               style={({ pressed }) => [
                 styles.button,
                 (!canSubmit || loading) && styles.buttonDisabled,
                 pressed && canSubmit && !loading && styles.buttonPressed,
               ]}
-              onPress={handleLogin}
+              onPress={handleRegister}
               disabled={!canSubmit}
             >
               {loading ? (
                 <ActivityIndicator color="#FFFFFF" />
               ) : (
-                <Text style={styles.buttonText}>Logga in</Text>
+                <Text style={styles.buttonText}>Skapa konto</Text>
               )}
             </Pressable>
 
-            <Pressable onPress={() => router.push('/register')} disabled={loading}>
-              <Text style={styles.link}>Har du inget konto? Skapa konto</Text>
-            </Pressable>
-
-            <Pressable onPress={() => router.push('/forgot-password')} disabled={loading}>
-              <Text style={styles.linkSecondary}>Glömt lösenord?</Text>
+            <Pressable onPress={() => router.replace('/login')} disabled={loading}>
+              <Text style={styles.link}>Har du redan konto? Logga in</Text>
             </Pressable>
           </View>
         </View>
@@ -255,7 +296,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    marginBottom: 18,
+    marginBottom: 16,
   },
 
   passwordInput: {
@@ -300,14 +341,6 @@ const styles = StyleSheet.create({
     color: '#E84E38',
     fontSize: 15,
     fontWeight: '700',
-    textAlign: 'center',
-    marginBottom: 14,
-  },
-
-  linkSecondary: {
-    color: '#64748B',
-    fontSize: 14,
-    fontWeight: '600',
     textAlign: 'center',
   },
 });
