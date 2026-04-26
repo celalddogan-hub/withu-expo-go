@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Image,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -15,14 +16,17 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { supabase } from '../../src/lib/supabase';
 import { checkContentSafety, getContentSafetyAlert } from '../../src/lib/contentSafety';
 import { WithUAvatar, WithUScreen, WithUTopBar } from '../../src/components/withu/WithUPrimitives';
 
-type FeedType = 'all' | 'activity' | 'thought' | 'event' | 'question';
+type FeedType = 'all' | 'activity' | 'photo' | 'event' | 'question';
 type ComposerType = Exclude<FeedType, 'all'>;
+type Visibility = 'friends' | 'matches' | 'nearby';
 
 type FeedPost = {
   id: string;
@@ -32,6 +36,7 @@ type FeedPost = {
   area: string | null;
   activity_icon: string | null;
   activity_title: string | null;
+  image_path: string | null;
   like_count: number | null;
   comment_count: number | null;
   participant_count: number | null;
@@ -46,20 +51,30 @@ type FeedPost = {
   joined_by_me?: boolean;
 };
 
-const FILTERS: { key: FeedType; label: string }[] = [
-  { key: 'all', label: 'Alla' },
-  { key: 'activity', label: 'Aktiviteter' },
-  { key: 'thought', label: 'Tankar' },
-  { key: 'event', label: 'Träffar' },
-  { key: 'question', label: 'Frågor' },
+const IMAGE_BUCKET = 'post-images';
+
+const FILTERS: { key: FeedType; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { key: 'all', label: 'Vänner', icon: 'people-outline' },
+  { key: 'activity', label: 'Aktiviteter', icon: 'cafe-outline' },
+  { key: 'photo', label: 'Bilder', icon: 'images-outline' },
+  { key: 'event', label: 'Träffar', icon: 'calendar-outline' },
+  { key: 'question', label: 'Frågor', icon: 'help-circle-outline' },
 ];
 
 const TYPE_META: Record<ComposerType, { label: string; icon: string; color: string; light: string }> = {
   activity: { label: 'Aktivitet', icon: '☕', color: '#E05C4B', light: '#FFF2F0' },
-  thought: { label: 'Tanke', icon: '🌿', color: '#1C5E52', light: '#EAF5F1' },
-  event: { label: 'Träff', icon: '📅', color: '#2F6FED', light: '#EEF4FF' },
-  question: { label: 'Fråga', icon: '❓', color: '#7A4FD1', light: '#F3EEFF' },
+  photo: { label: 'Bild', icon: '📷', color: '#2F6FED', light: '#EEF4FF' },
+  event: { label: 'Träff', icon: '📅', color: '#7A4FD1', light: '#F3EEFF' },
+  question: { label: 'Fråga', icon: '?', color: '#1C5E52', light: '#EAF5F1' },
 };
+
+const VISIBILITY_OPTIONS: { key: Visibility; label: string; sub: string }[] = [
+  { key: 'friends', label: 'Vänner', sub: 'Bara dina vänner' },
+  { key: 'matches', label: 'Matcher', sub: 'Personer du matchat med' },
+  { key: 'nearby', label: 'Nära', sub: 'Aktiva nära dig' },
+];
+
+const URL_PATTERN = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
 
 function firstName(name?: string | null) {
   return name?.trim().split(' ')[0] || 'Medlem';
@@ -80,10 +95,14 @@ function isMissingFeedTables(error: unknown) {
   return message.includes('posts') || message.includes('does not exist') || message.includes('relation');
 }
 
-const URL_PATTERN = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
-
 function normalizeUrl(url: string) {
   return url.toLowerCase().startsWith('http') ? url : `https://${url}`;
+}
+
+function publicImageUrl(path?: string | null) {
+  if (!path) return null;
+  const { data } = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path);
+  return data.publicUrl;
 }
 
 function renderLinkedText(text: string) {
@@ -125,6 +144,10 @@ export default function FeedScreen() {
   const [composerType, setComposerType] = useState<ComposerType>('activity');
   const [composerText, setComposerText] = useState('');
   const [activityTitle, setActivityTitle] = useState('');
+  const [visibility, setVisibility] = useState<Visibility>('friends');
+  const [selectedImage, setSelectedImage] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [commentPost, setCommentPost] = useState<FeedPost | null>(null);
+  const [commentText, setCommentText] = useState('');
   const [saving, setSaving] = useState(false);
 
   const filteredPosts = useMemo(
@@ -150,7 +173,7 @@ export default function FeedScreen() {
       const { data, error } = await supabase
         .from('posts')
         .select(
-          'id, user_id, type, content, area, activity_icon, activity_title, like_count, comment_count, participant_count, created_at, profiles:profiles!posts_user_id_fkey(name, city, avatar_emoji, is_bankid_verified)'
+          'id, user_id, type, content, area, activity_icon, activity_title, image_path, like_count, comment_count, participant_count, created_at, profiles:profiles!posts_user_id_fkey(name, city, avatar_emoji, is_bankid_verified)'
         )
         .eq('is_active', true)
         .eq('moderation_status', 'visible')
@@ -158,7 +181,28 @@ export default function FeedScreen() {
         .limit(60);
 
       if (error) throw error;
-      setPosts((data ?? []) as unknown as FeedPost[]);
+
+      const nextPosts = (data ?? []) as unknown as FeedPost[];
+      const ids = nextPosts.map((post) => post.id);
+
+      if (ids.length) {
+        const [{ data: likes }, { data: participants }] = await Promise.all([
+          supabase.from('post_likes').select('post_id').eq('user_id', user.id).in('post_id', ids),
+          supabase.from('post_participants').select('post_id').eq('user_id', user.id).in('post_id', ids),
+        ]);
+        const likedIds = new Set((likes ?? []).map((row) => row.post_id as string));
+        const joinedIds = new Set((participants ?? []).map((row) => row.post_id as string));
+
+        setPosts(
+          nextPosts.map((post) => ({
+            ...post,
+            liked_by_me: likedIds.has(post.id),
+            joined_by_me: joinedIds.has(post.id),
+          }))
+        );
+      } else {
+        setPosts([]);
+      }
     } catch (error: any) {
       setPosts([]);
       if (isMissingFeedTables(error)) {
@@ -188,17 +232,138 @@ export default function FeedScreen() {
     setComposerText('');
     setActivityTitle('');
     setComposerType('activity');
+    setVisibility('friends');
+    setSelectedImage(null);
     setComposerOpen(false);
+  };
+
+  const pickImage = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Bildbehörighet behövs', 'Tillåt bilder för att kunna lägga upp ett foto.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      quality: 0.82,
+      allowsEditing: true,
+      aspect: [4, 3],
+    });
+
+    if (!result.canceled) {
+      setSelectedImage(result.assets[0]);
+      setComposerType('photo');
+    }
+  };
+
+  const uploadSelectedImage = async () => {
+    if (!selectedImage || !currentUserId) return null;
+
+    const response = await fetch(selectedImage.uri);
+    const blob = await response.blob();
+    const extension = selectedImage.uri.split('.').pop()?.toLowerCase() || 'jpg';
+    const path = `${currentUserId}/${Date.now()}.${extension}`;
+    const { error } = await supabase.storage.from(IMAGE_BUCKET).upload(path, blob, {
+      contentType: selectedImage.mimeType || 'image/jpeg',
+      upsert: false,
+    });
+
+    if (error) throw error;
+    return path;
   };
 
   const createPost = async () => {
     if (!currentUserId || saving) return;
     const text = composerText.trim();
 
-    if (text.length < 3) {
-      Alert.alert('Skriv lite mer', 'Flödet behöver minst några ord.');
+    if (text.length < 3 && !selectedImage) {
+      Alert.alert('Skriv lite mer', 'Lägg till några ord eller en bild.');
       return;
     }
+
+    const safety = checkContentSafety(`${activityTitle} ${text}`);
+    if (!safety.allowed) {
+      const alert = getContentSafetyAlert(safety);
+      Alert.alert(alert.title, alert.body);
+      return;
+    }
+
+    try {
+      setSaving(true);
+      const meta = TYPE_META[composerType];
+      const imagePath = selectedImage ? await uploadSelectedImage() : null;
+      const { error } = await supabase.from('posts').insert({
+        user_id: currentUserId,
+        type: composerType,
+        content: text || activityTitle.trim() || 'Bild',
+        activity_icon: meta.icon,
+        activity_title: activityTitle.trim() || null,
+        image_path: imagePath,
+        image_status: imagePath ? 'approved' : 'none',
+        area: visibility === 'nearby' ? 'Nära dig' : visibility === 'matches' ? 'Matcher' : 'Vänner',
+      });
+
+      if (error) throw error;
+      resetComposer();
+      await loadFeed();
+    } catch (error: any) {
+      if (isMissingFeedTables(error)) setSetupRequired(true);
+      Alert.alert(
+        'Kunde inte publicera',
+        error?.message?.includes('Bucket not found')
+          ? 'Skapa storage-bucketen post-images i Supabase, eller kör senaste SQL-paketet.'
+          : error?.message || 'Något gick fel.'
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updatePostState = (postId: string, patch: Partial<FeedPost>) => {
+    setPosts((current) => current.map((post) => (post.id === postId ? { ...post, ...patch } : post)));
+  };
+
+  const toggleLike = async (post: FeedPost) => {
+    if (!currentUserId) return;
+    const liked = !!post.liked_by_me;
+    updatePostState(post.id, {
+      liked_by_me: !liked,
+      like_count: Math.max(0, (post.like_count ?? 0) + (liked ? -1 : 1)),
+    });
+
+    const result = liked
+      ? await supabase.from('post_likes').delete().eq('post_id', post.id).eq('user_id', currentUserId)
+      : await supabase.from('post_likes').insert({ post_id: post.id, user_id: currentUserId });
+
+    if (result.error) {
+      updatePostState(post.id, { liked_by_me: liked, like_count: post.like_count });
+      Alert.alert('Kunde inte gilla', result.error.message);
+    }
+  };
+
+  const toggleJoin = async (post: FeedPost) => {
+    if (!currentUserId) return;
+    const joined = !!post.joined_by_me;
+    updatePostState(post.id, {
+      joined_by_me: !joined,
+      participant_count: Math.max(0, (post.participant_count ?? 0) + (joined ? -1 : 1)),
+    });
+
+    const result = joined
+      ? await supabase.from('post_participants').delete().eq('post_id', post.id).eq('user_id', currentUserId)
+      : await supabase.from('post_participants').insert({ post_id: post.id, user_id: currentUserId });
+
+    if (result.error) {
+      updatePostState(post.id, { joined_by_me: joined, participant_count: post.participant_count });
+      Alert.alert('Kunde inte gå med', result.error.message);
+    }
+  };
+
+  const submitComment = async () => {
+    if (!commentPost || !currentUserId || saving) return;
+    const text = commentText.trim();
+    if (!text) return;
 
     const safety = checkContentSafety(text);
     if (!safety.allowed) {
@@ -209,34 +374,39 @@ export default function FeedScreen() {
 
     try {
       setSaving(true);
-      const meta = TYPE_META[composerType];
-      const { error } = await supabase.from('posts').insert({
+      const { error } = await supabase.from('post_comments').insert({
+        post_id: commentPost.id,
         user_id: currentUserId,
-        type: composerType,
         content: text,
-        activity_icon: meta.icon,
-        activity_title: activityTitle.trim() || null,
       });
-
       if (error) throw error;
-      resetComposer();
-      await loadFeed();
+      updatePostState(commentPost.id, { comment_count: (commentPost.comment_count ?? 0) + 1 });
+      setCommentText('');
+      setCommentPost(null);
     } catch (error: any) {
-      if (isMissingFeedTables(error)) setSetupRequired(true);
-      Alert.alert('Kunde inte publicera', error?.message || 'Något gick fel.');
+      Alert.alert('Kunde inte kommentera', error?.message || 'Försök igen.');
     } finally {
       setSaving(false);
     }
   };
 
+  const openProfile = (userId: string) => {
+    router.push(`/user/${userId}`);
+  };
+
   const renderPost = ({ item }: { item: FeedPost }) => {
-    const meta = TYPE_META[item.type];
+    const meta = TYPE_META[item.type] || TYPE_META.activity;
+    const imageUrl = publicImageUrl(item.image_path);
+
     return (
       <View style={styles.postCard}>
-        <View style={styles.postHeader}>
+        <Pressable style={styles.postHeader} onPress={() => openProfile(item.user_id)}>
           <WithUAvatar emoji={item.profiles?.avatar_emoji || meta.icon} size={48} />
           <View style={styles.postHeaderText}>
-            <Text style={styles.postName}>{firstName(item.profiles?.name)}</Text>
+            <Text style={styles.postName}>
+              {firstName(item.profiles?.name)}
+              {item.profiles?.is_bankid_verified ? '  ✓' : ''}
+            </Text>
             <Text style={styles.postMeta}>
               {item.area || item.profiles?.city || 'WithU'} · {formatWhen(item.created_at)}
             </Text>
@@ -246,24 +416,42 @@ export default function FeedScreen() {
               {meta.icon} {meta.label}
             </Text>
           </View>
-        </View>
+        </Pressable>
+
+        {imageUrl ? <Image source={{ uri: imageUrl }} style={styles.postImage} /> : null}
 
         <Text style={styles.postText}>{renderLinkedText(item.content)}</Text>
 
         {item.activity_title ? (
-          <View style={[styles.activityBox, { borderColor: meta.color }]}>
+          <Pressable style={[styles.activityBox, { borderColor: meta.color }]} onPress={() => toggleJoin(item)}>
             <Text style={styles.activityIcon}>{item.activity_icon || meta.icon}</Text>
             <View style={styles.activityInfo}>
               <Text style={styles.activityTitle}>{item.activity_title}</Text>
-              <Text style={styles.activitySub}>Planera detaljer i chatten</Text>
+              <Text style={styles.activitySub}>
+                {item.joined_by_me ? 'Du är med · planera i chatten' : 'Tryck för att hänga med'}
+              </Text>
             </View>
-          </View>
+            <Ionicons name={item.joined_by_me ? 'checkmark-circle' : 'add-circle-outline'} size={26} color={meta.color} />
+          </Pressable>
         ) : null}
 
         <View style={styles.postFooter}>
-          <Text style={styles.footerText}>💙 {item.like_count ?? 0}</Text>
-          <Text style={styles.footerText}>💬 {item.comment_count ?? 0}</Text>
-          <Text style={styles.footerText}>🤝 {item.participant_count ?? 0}</Text>
+          <Pressable style={[styles.footerButton, item.liked_by_me && styles.footerButtonActive]} onPress={() => toggleLike(item)}>
+            <Ionicons name={item.liked_by_me ? 'heart' : 'heart-outline'} size={22} color={item.liked_by_me ? '#E05C4B' : '#5C6780'} />
+            <Text style={[styles.footerText, item.liked_by_me && styles.footerTextActive]}>{item.like_count ?? 0}</Text>
+          </Pressable>
+          <Pressable style={styles.footerButton} onPress={() => setCommentPost(item)}>
+            <Ionicons name="chatbubble-ellipses-outline" size={21} color="#5C6780" />
+            <Text style={styles.footerText}>{item.comment_count ?? 0}</Text>
+          </Pressable>
+          <Pressable style={[styles.footerButton, item.joined_by_me && styles.footerJoinActive]} onPress={() => toggleJoin(item)}>
+            <Ionicons name={item.joined_by_me ? 'hand-left' : 'hand-left-outline'} size={21} color={item.joined_by_me ? '#1C5E52' : '#5C6780'} />
+            <Text style={[styles.footerText, item.joined_by_me && styles.footerJoinText]}>{item.participant_count ?? 0}</Text>
+          </Pressable>
+          <Pressable style={styles.footerButton} onPress={() => openProfile(item.user_id)}>
+            <Ionicons name="person-circle-outline" size={22} color="#5C6780" />
+            <Text style={styles.footerText}>Profil</Text>
+          </Pressable>
         </View>
       </View>
     );
@@ -272,7 +460,7 @@ export default function FeedScreen() {
   if (loading) {
     return (
       <WithUScreen>
-        <WithUTopBar title="Flödet" subtitle="Aktiviteter, tankar och frågor." />
+        <WithUTopBar title="Flödet" subtitle="Vänner, bilder och aktiviteter." />
         <View style={styles.centerState}>
           <ActivityIndicator size="large" color="#1C5E52" />
           <Text style={styles.centerTitle}>Laddar flödet...</Text>
@@ -283,7 +471,7 @@ export default function FeedScreen() {
 
   return (
     <WithUScreen>
-      <WithUTopBar title="Flödet" subtitle="Vad händer nära dig?" />
+      <WithUTopBar title="Flödet" subtitle="Bara dina vänner, matcher och trygga träffar." />
       <FlatList
         data={filteredPosts}
         keyExtractor={(item) => item.id}
@@ -294,24 +482,22 @@ export default function FeedScreen() {
         ListHeaderComponent={
           <View>
             <View style={styles.hero}>
-              <Text style={styles.heroBadge}>WITHU FLÖDE</Text>
-              <Text style={styles.heroTitle}>Gör något tillsammans</Text>
+              <Text style={styles.heroBadge}>VÄNNER & MATCHER</Text>
+              <Text style={styles.heroTitle}>Dela något som leder till kontakt</Text>
               <Text style={styles.heroText}>
-                Lägg upp en aktivitet, tanke eller fråga. Trygghet först, enkelt alltid.
+                Bilder, aktiviteter, frågor och träffar visas för dina trygga kontakter.
               </Text>
-              <Pressable style={styles.thoughtsButton} onPress={() => router.push('/explore')}>
-                <Text style={styles.thoughtsButtonEmoji}>✨</Text>
-                <Text style={styles.thoughtsButtonText}>Öppna Tankar</Text>
-              </Pressable>
             </View>
 
             <Pressable style={styles.composerCard} onPress={() => setComposerOpen(true)}>
               <WithUAvatar emoji="🙂" size={44} />
               <View style={styles.composerTextWrap}>
-                <Text style={styles.composerTitle}>Vad vill du göra idag?</Text>
-                <Text style={styles.composerSub}>Skriv en aktivitet, tanke eller fråga</Text>
+                <Text style={styles.composerTitle}>Lägg upp för dina vänner</Text>
+                <Text style={styles.composerSub}>Bild, aktivitet, fråga eller träff</Text>
               </View>
-              <Text style={styles.composerPlus}>＋</Text>
+              <View style={styles.composerPlus}>
+                <Ionicons name="add" size={26} color="#FFFFFF" />
+              </View>
             </Pressable>
 
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
@@ -323,6 +509,7 @@ export default function FeedScreen() {
                     style={[styles.filterChip, selected && styles.filterChipActive]}
                     onPress={() => setActiveFilter(filter.key)}
                   >
+                    <Ionicons name={filter.icon} size={17} color={selected ? '#FFFFFF' : '#0F1E38'} />
                     <Text style={[styles.filterText, selected && styles.filterTextActive]}>
                       {filter.label}
                     </Text>
@@ -334,7 +521,7 @@ export default function FeedScreen() {
             {setupRequired ? (
               <View style={styles.setupCard}>
                 <Text style={styles.setupTitle}>Flödet behöver Supabase</Text>
-                <Text style={styles.setupText}>Kör SQL-filen för flödet innan användare publicerar.</Text>
+                <Text style={styles.setupText}>Kör senaste SQL-paketet innan användare publicerar.</Text>
               </View>
             ) : null}
 
@@ -350,80 +537,145 @@ export default function FeedScreen() {
           !setupRequired && !errorText ? (
             <View style={styles.emptyCard}>
               <Text style={styles.emptyTitle}>Inget i flödet ännu</Text>
-              <Text style={styles.emptyText}>Bli först med att lägga upp en trygg aktivitet.</Text>
+              <Text style={styles.emptyText}>Lägg upp en bild eller aktivitet så känns appen mer levande.</Text>
             </View>
           ) : null
         }
         renderItem={renderPost}
       />
 
-      <Modal visible={composerOpen} transparent animationType="slide" onRequestClose={resetComposer}>
+      <Modal visible={composerOpen} animationType="slide" onRequestClose={resetComposer}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}
-          style={styles.modalKeyboardWrap}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}
+          style={styles.fullComposer}
         >
-          <Pressable style={styles.modalBackdrop} onPress={resetComposer}>
-            <Pressable style={styles.modalSheet} onPress={() => undefined}>
-              <View style={styles.modalHandle} />
-              <ScrollView
-                contentContainerStyle={styles.modalScrollContent}
-                keyboardShouldPersistTaps="handled"
-                showsVerticalScrollIndicator={false}
-              >
-                <Text style={styles.modalTitle}>Skapa inlägg</Text>
-                <View style={styles.typeRow}>
-                  {(Object.keys(TYPE_META) as ComposerType[]).map((type) => {
-                    const selected = composerType === type;
-                    const meta = TYPE_META[type];
-                    return (
-                      <Pressable
-                        key={type}
-                        style={[
-                          styles.typeChoice,
-                          selected && { backgroundColor: meta.light, borderColor: meta.color },
-                        ]}
-                        onPress={() => setComposerType(type)}
-                      >
-                        <Text style={[styles.typeChoiceText, selected && { color: meta.color }]}>
-                          {meta.icon} {meta.label}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-                {(composerType === 'activity' || composerType === 'event') && (
-                  <TextInput
-                    value={activityTitle}
-                    onChangeText={setActivityTitle}
-                    placeholder="Titel, t.ex. Fika i centrum"
-                    placeholderTextColor="#8B95AA"
-                    style={styles.titleInput}
-                    maxLength={80}
-                    returnKeyType="next"
-                  />
-                )}
-                <TextInput
-                  value={composerText}
-                  onChangeText={setComposerText}
-                  placeholder="Skriv lugnt och tydligt..."
-                  placeholderTextColor="#8B95AA"
-                  style={styles.composerInput}
-                  multiline
-                  maxLength={500}
-                />
-                <Text style={styles.composerHint}>{500 - composerText.length} tecken kvar</Text>
-                <View style={styles.modalActions}>
-                  <Pressable style={styles.cancelButton} onPress={resetComposer} disabled={saving}>
-                    <Text style={styles.cancelText}>Avbryt</Text>
-                  </Pressable>
-                  <Pressable style={[styles.publishButton, saving && styles.publishButtonDisabled]} onPress={createPost} disabled={saving}>
-                    <Text style={styles.publishText}>{saving ? 'Publicerar...' : 'Publicera'}</Text>
-                  </Pressable>
-                </View>
-              </ScrollView>
+          <View style={styles.composerHeader}>
+            <Pressable onPress={resetComposer} style={styles.headerIconButton}>
+              <Ionicons name="close" size={24} color="#0F1E38" />
             </Pressable>
-          </Pressable>
+            <Text style={styles.modalTitle}>Skapa inlägg</Text>
+            <Pressable style={[styles.headerPublish, saving && styles.publishButtonDisabled]} onPress={createPost} disabled={saving}>
+              <Text style={styles.headerPublishText}>{saving ? '...' : 'Publicera'}</Text>
+            </Pressable>
+          </View>
+          <ScrollView
+            contentContainerStyle={styles.fullComposerContent}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.typeRow}>
+              {(Object.keys(TYPE_META) as ComposerType[]).map((type) => {
+                const selected = composerType === type;
+                const meta = TYPE_META[type];
+                return (
+                  <Pressable
+                    key={type}
+                    style={[
+                      styles.typeChoice,
+                      selected && { backgroundColor: meta.light, borderColor: meta.color },
+                    ]}
+                    onPress={() => setComposerType(type)}
+                  >
+                    <Text style={[styles.typeChoiceText, selected && { color: meta.color }]}>
+                      {meta.icon} {meta.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <Text style={styles.fieldLabel}>Synlighet</Text>
+            <View style={styles.visibilityGrid}>
+              {VISIBILITY_OPTIONS.map((option) => {
+                const selected = visibility === option.key;
+                return (
+                  <Pressable
+                    key={option.key}
+                    style={[styles.visibilityOption, selected && styles.visibilityOptionActive]}
+                    onPress={() => setVisibility(option.key)}
+                  >
+                    <Text style={[styles.visibilityLabel, selected && styles.visibilityLabelActive]}>{option.label}</Text>
+                    <Text style={[styles.visibilitySub, selected && styles.visibilitySubActive]}>{option.sub}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {(composerType === 'activity' || composerType === 'event') && (
+              <TextInput
+                value={activityTitle}
+                onChangeText={setActivityTitle}
+                placeholder="Titel, t.ex. Fika i centrum"
+                placeholderTextColor="#8B95AA"
+                style={styles.titleInput}
+                maxLength={80}
+                returnKeyType="next"
+              />
+            )}
+
+            {selectedImage ? (
+              <View style={styles.previewWrap}>
+                <Image source={{ uri: selectedImage.uri }} style={styles.previewImage} />
+                <Pressable style={styles.removeImageButton} onPress={() => setSelectedImage(null)}>
+                  <Ionicons name="close" size={18} color="#FFFFFF" />
+                </Pressable>
+              </View>
+            ) : null}
+
+            <TextInput
+              value={composerText}
+              onChangeText={setComposerText}
+              placeholder="Skriv text, länkar eller vad du vill göra..."
+              placeholderTextColor="#8B95AA"
+              style={styles.composerInput}
+              multiline
+              maxLength={500}
+            />
+            <Text style={styles.composerHint}>{500 - composerText.length} tecken kvar</Text>
+
+            <View style={styles.toolRow}>
+              <Pressable style={styles.toolButton} onPress={pickImage}>
+                <Ionicons name="image-outline" size={22} color="#1C5E52" />
+                <Text style={styles.toolText}>Bild</Text>
+              </Pressable>
+              <Pressable style={styles.toolButton} onPress={() => setComposerType('activity')}>
+                <Ionicons name="cafe-outline" size={22} color="#1C5E52" />
+                <Text style={styles.toolText}>Aktivitet</Text>
+              </Pressable>
+              <Pressable style={styles.toolButton} onPress={() => setComposerType('event')}>
+                <Ionicons name="calendar-outline" size={22} color="#1C5E52" />
+                <Text style={styles.toolText}>Träff</Text>
+              </Pressable>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal visible={!!commentPost} transparent animationType="fade" onRequestClose={() => setCommentPost(null)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.commentBackdrop}>
+          <Pressable style={styles.commentShade} onPress={() => setCommentPost(null)} />
+          <View style={styles.commentSheet}>
+            <Text style={styles.commentTitle}>Kommentera</Text>
+            <TextInput
+              value={commentText}
+              onChangeText={setCommentText}
+              placeholder="Skriv en trygg kommentar..."
+              placeholderTextColor="#8B95AA"
+              style={styles.commentInput}
+              multiline
+              autoFocus
+            />
+            <View style={styles.modalActions}>
+              <Pressable style={styles.cancelButton} onPress={() => setCommentPost(null)} disabled={saving}>
+                <Text style={styles.cancelText}>Avbryt</Text>
+              </Pressable>
+              <Pressable style={[styles.publishButton, saving && styles.publishButtonDisabled]} onPress={submitComment} disabled={saving}>
+                <Text style={styles.publishText}>Skicka</Text>
+              </Pressable>
+            </View>
+          </View>
         </KeyboardAvoidingView>
       </Modal>
     </WithUScreen>
@@ -437,23 +689,8 @@ const styles = StyleSheet.create({
   heroBadge: { color: '#7ED3C4', fontSize: 11, fontWeight: '900', letterSpacing: 1, marginBottom: 8 },
   heroTitle: { color: '#FFFFFF', fontSize: 27, lineHeight: 33, fontWeight: '900', marginBottom: 8 },
   heroText: { color: 'rgba(255,255,255,0.78)', fontSize: 14, lineHeight: 22 },
-  thoughtsButton: {
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
-    borderRadius: 999,
-    paddingHorizontal: 13,
-    paddingVertical: 9,
-    marginTop: 14,
-  },
-  thoughtsButtonEmoji: { fontSize: 15 },
-  thoughtsButtonText: { color: '#FFFFFF', fontSize: 13, fontWeight: '900' },
   composerCard: {
-    minHeight: 74,
+    minHeight: 76,
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
     borderWidth: 1,
@@ -464,17 +701,27 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   composerTextWrap: { flex: 1, marginLeft: 12 },
-  composerTitle: { color: '#0F1E38', fontSize: 15, fontWeight: '900' },
+  composerTitle: { color: '#0F1E38', fontSize: 16, fontWeight: '900' },
   composerSub: { color: '#7A8399', fontSize: 12, fontWeight: '700', marginTop: 3 },
-  composerPlus: { color: '#E05C4B', fontSize: 28, fontWeight: '900' },
+  composerPlus: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#E05C4B',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   filterRow: { gap: 8, paddingBottom: 12 },
   filterChip: {
     borderRadius: 999,
     backgroundColor: '#FFFFFF',
     borderWidth: 1.5,
     borderColor: '#DDE2EF',
-    paddingHorizontal: 15,
+    paddingHorizontal: 14,
     paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
   },
   filterChipActive: { backgroundColor: '#1C5E52', borderColor: '#1C5E52' },
   filterText: { color: '#0F1E38', fontSize: 13, fontWeight: '900' },
@@ -489,11 +736,12 @@ const styles = StyleSheet.create({
   },
   postHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   postHeaderText: { flex: 1, minWidth: 0, marginLeft: 10 },
-  postName: { color: '#0F1E38', fontSize: 15, fontWeight: '900' },
+  postName: { color: '#0F1E38', fontSize: 16, fontWeight: '900' },
   postMeta: { color: '#7A8399', fontSize: 12, fontWeight: '700', marginTop: 2 },
   typeBadge: { borderRadius: 999, paddingHorizontal: 9, paddingVertical: 5 },
   typeBadgeText: { fontSize: 10, fontWeight: '900' },
-  postText: { color: '#334155', fontSize: 15, lineHeight: 23, marginBottom: 12 },
+  postImage: { width: '100%', height: 220, borderRadius: 18, marginBottom: 12, backgroundColor: '#EEF1F6' },
+  postText: { color: '#334155', fontSize: 16, lineHeight: 24, marginBottom: 12 },
   linkText: { color: '#1C5E52', fontWeight: '900', textDecorationLine: 'underline' },
   activityBox: {
     borderRadius: 16,
@@ -509,7 +757,20 @@ const styles = StyleSheet.create({
   activityTitle: { color: '#0F1E38', fontSize: 14, fontWeight: '900' },
   activitySub: { color: '#7A8399', fontSize: 11, fontWeight: '700', marginTop: 3 },
   postFooter: { flexDirection: 'row', gap: 8, borderTopWidth: 1, borderTopColor: '#EEF1F6', paddingTop: 10 },
+  footerButton: {
+    minHeight: 38,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    backgroundColor: '#F8FAFC',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  footerButtonActive: { backgroundColor: '#FFF2F0' },
+  footerJoinActive: { backgroundColor: '#EAF5F1' },
   footerText: { color: '#5C6780', fontSize: 13, fontWeight: '900' },
+  footerTextActive: { color: '#E05C4B' },
+  footerJoinText: { color: '#1C5E52' },
   setupCard: { backgroundColor: '#FFF8E8', borderRadius: 18, borderWidth: 1, borderColor: '#EAD9AB', padding: 16, marginBottom: 12 },
   setupTitle: { color: '#0F1E38', fontSize: 17, fontWeight: '900', marginBottom: 6 },
   setupText: { color: '#5C6780', fontSize: 13, lineHeight: 20 },
@@ -518,26 +779,38 @@ const styles = StyleSheet.create({
   emptyText: { color: '#5C6780', fontSize: 14, lineHeight: 22, textAlign: 'center' },
   centerState: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, backgroundColor: '#F8F7F4' },
   centerTitle: { marginTop: 12, color: '#0F1E38', fontSize: 20, fontWeight: '900' },
-  modalKeyboardWrap: { flex: 1, justifyContent: 'flex-end' },
-  modalBackdrop: { flex: 1, backgroundColor: 'rgba(15,30,56,0.48)', justifyContent: 'flex-end' },
-  modalSheet: {
-    maxHeight: '88%',
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingHorizontal: 18,
-    paddingTop: 12,
-    paddingBottom: Platform.OS === 'ios' ? 22 : 16,
+  fullComposer: { flex: 1, backgroundColor: '#FFFFFF' },
+  composerHeader: {
+    paddingTop: Platform.OS === 'ios' ? 54 : 22,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEF1F6',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
-  modalScrollContent: { paddingBottom: 8 },
-  modalHandle: { width: 42, height: 5, borderRadius: 999, backgroundColor: '#DDE2EF', alignSelf: 'center', marginBottom: 14 },
-  modalTitle: { color: '#0F1E38', fontSize: 22, fontWeight: '900', marginBottom: 12 },
-  typeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
+  headerIconButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#F8FAFC', alignItems: 'center', justifyContent: 'center' },
+  modalTitle: { flex: 1, color: '#0F1E38', fontSize: 21, fontWeight: '900' },
+  headerPublish: { borderRadius: 999, backgroundColor: '#1C5E52', paddingHorizontal: 14, paddingVertical: 10 },
+  headerPublishText: { color: '#FFFFFF', fontSize: 13, fontWeight: '900' },
+  fullComposerContent: { padding: 16, paddingBottom: 180 },
+  typeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
   typeChoice: { borderRadius: 999, borderWidth: 1.5, borderColor: '#DDE2EF', paddingHorizontal: 12, paddingVertical: 9 },
   typeChoiceText: { color: '#0F1E38', fontSize: 13, fontWeight: '900' },
+  fieldLabel: { color: '#0F1E38', fontSize: 13, fontWeight: '900', marginBottom: 8 },
+  visibilityGrid: { gap: 8, marginBottom: 16 },
+  visibilityOption: { borderRadius: 16, borderWidth: 1.5, borderColor: '#DDE2EF', padding: 12 },
+  visibilityOptionActive: { borderColor: '#1C5E52', backgroundColor: '#EAF5F1' },
+  visibilityLabel: { color: '#0F1E38', fontSize: 14, fontWeight: '900' },
+  visibilityLabelActive: { color: '#1C5E52' },
+  visibilitySub: { color: '#7A8399', fontSize: 12, fontWeight: '700', marginTop: 2 },
+  visibilitySubActive: { color: '#1C5E52' },
+  previewWrap: { marginBottom: 12 },
+  previewImage: { width: '100%', height: 220, borderRadius: 18, backgroundColor: '#EEF1F6' },
+  removeImageButton: { position: 'absolute', top: 10, right: 10, width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(15,30,56,0.78)', alignItems: 'center', justifyContent: 'center' },
   composerInput: {
-    minHeight: 138,
-    maxHeight: 240,
+    minHeight: 180,
     borderRadius: 18,
     borderWidth: 1.5,
     borderColor: '#DDE2EF',
@@ -545,25 +818,54 @@ const styles = StyleSheet.create({
     color: '#0F1E38',
     padding: 14,
     textAlignVertical: 'top',
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: 16,
+    lineHeight: 24,
     fontWeight: '700',
     marginBottom: 6,
   },
   composerHint: { color: '#7A8399', fontSize: 11, fontWeight: '800', textAlign: 'right', marginBottom: 12 },
   titleInput: {
-    minHeight: 48,
+    minHeight: 52,
     borderRadius: 16,
     borderWidth: 1.5,
     borderColor: '#DDE2EF',
     backgroundColor: '#F8FAFC',
     color: '#0F1E38',
     paddingHorizontal: 14,
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '800',
-    marginBottom: 10,
+    marginBottom: 12,
   },
-  modalActions: { flexDirection: 'row', gap: 10, paddingBottom: 2 },
+  toolRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  toolButton: {
+    flex: 1,
+    minHeight: 52,
+    borderRadius: 16,
+    backgroundColor: '#EAF5F1',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+  },
+  toolText: { color: '#1C5E52', fontSize: 12, fontWeight: '900' },
+  commentBackdrop: { flex: 1, justifyContent: 'flex-end' },
+  commentShade: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(15,30,56,0.5)' },
+  commentSheet: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 16, paddingBottom: Platform.OS === 'ios' ? 28 : 16 },
+  commentTitle: { color: '#0F1E38', fontSize: 22, fontWeight: '900', marginBottom: 10 },
+  commentInput: {
+    minHeight: 96,
+    maxHeight: 170,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#DDE2EF',
+    backgroundColor: '#F8FAFC',
+    color: '#0F1E38',
+    padding: 12,
+    textAlignVertical: 'top',
+    fontSize: 15,
+    fontWeight: '700',
+    marginBottom: 12,
+  },
+  modalActions: { flexDirection: 'row', gap: 10 },
   cancelButton: { flex: 1, minHeight: 50, borderRadius: 16, borderWidth: 1.5, borderColor: '#DDE2EF', alignItems: 'center', justifyContent: 'center' },
   cancelText: { color: '#0F1E38', fontSize: 14, fontWeight: '900' },
   publishButton: { flex: 1.2, minHeight: 50, borderRadius: 16, backgroundColor: '#1C5E52', alignItems: 'center', justifyContent: 'center' },
