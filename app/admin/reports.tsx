@@ -13,6 +13,7 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { supabase } from '../../src/lib/supabase';
+import { isCurrentUserAdmin } from '../../src/lib/moderation';
 import {
   withuColors,
   withuRadius,
@@ -134,6 +135,13 @@ export default function AdminReportsScreen() {
   const loadData = useCallback(async () => {
     try {
       setErrorText('');
+
+      const adminAllowed = await isCurrentUserAdmin();
+      if (!adminAllowed) {
+        setItems([]);
+        setErrorText('Du har inte adminåtkomst.');
+        return;
+      }
 
       const { data, error } = await supabase
         .from('reports')

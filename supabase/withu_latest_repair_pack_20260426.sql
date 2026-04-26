@@ -438,6 +438,12 @@ drop policy if exists "Users can read own reports" on public.reports;
 create policy "Users can read own reports" on public.reports
 for select to authenticated using (auth.uid() = reporter_id);
 
+drop policy if exists "Admins can manage reports" on public.reports;
+create policy "Admins can manage reports" on public.reports
+for all to authenticated
+using (exists (select 1 from public.admins a where a.user_id = auth.uid()))
+with check (exists (select 1 from public.admins a where a.user_id = auth.uid()));
+
 drop policy if exists "Users can read own blocks" on public.blocked_users;
 create policy "Users can read own blocks" on public.blocked_users
 for select to authenticated using (auth.uid() = blockerad_av or auth.uid() = blockerad);

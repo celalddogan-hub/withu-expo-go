@@ -27,6 +27,7 @@ import {
   useAudioRecorderState,
 } from 'expo-audio';
 import { supabase } from '../../src/lib/supabase';
+import { blockUser as blockChatUser, createChatReport } from '../../src/lib/chatSafety';
 
 type MatchRow = {
   id: string;
@@ -883,18 +884,21 @@ export default function ChatDetailScreen() {
   };
 
   const skickaRapport = async () => {
-    if (!valdOrsak) return;
+    if (!valdOrsak || !currentUserId || !otherProfile?.id) return;
 
     try {
-      await supabase.from('rapporter').insert({
-        rapporterad_id: otherProfile?.id,
-        orsak: valdOrsak,
-        rapporterad_av: currentUserId,
-        match_id: matchId,
+      await createChatReport({
+        reporterId: currentUserId,
+        reportedUserId: otherProfile.id,
+        reason: 'unsafe_behavior',
+        details: valdOrsak,
+        conversationKey: matchId,
+        matchId,
       });
-    } catch (_) {}
-
-    setRapportSkickad(true);
+      setRapportSkickad(true);
+    } catch (error: any) {
+      Alert.alert('Kunde inte skicka rapport', error?.message || 'Försök igen.');
+    }
   };
 
   const stangRapport = () => {
@@ -916,13 +920,12 @@ export default function ChatDetailScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await supabase.from('blocked_users').insert({
-                blockerad_av: currentUserId,
-                blockerad: otherProfile?.id,
-              });
-            } catch (_) {}
-
-            router.replace('/chat');
+              if (!currentUserId || !otherProfile?.id) return;
+              await blockChatUser(currentUserId, otherProfile.id);
+              router.replace('/chat');
+            } catch (error: any) {
+              Alert.alert('Kunde inte blockera', error?.message || 'Försök igen.');
+            }
           },
         },
       ]
