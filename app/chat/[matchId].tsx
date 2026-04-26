@@ -28,6 +28,7 @@ import {
 } from 'expo-audio';
 import { supabase } from '../../src/lib/supabase';
 import { blockUser as blockChatUser, createChatReport } from '../../src/lib/chatSafety';
+import { guardContentOrShowHelp } from '../../src/lib/crisisSafety';
 
 type MatchRow = {
   id: string;
@@ -590,6 +591,17 @@ export default function ChatDetailScreen() {
   const handleSendText = async () => {
     const trimmed = draft.trim();
     if (!trimmed || !matchId || !currentUserId || sending) return;
+
+    const isSafe = await guardContentOrShowHelp({
+      text: trimmed,
+      reporterId: currentUserId,
+      router,
+      surface: 'chat',
+      targetUserId: otherProfile?.id,
+      conversationKey: matchId,
+      matchId,
+    });
+    if (!isSafe) return;
 
     const optimisticId = `temp-${Date.now()}`;
     const optimisticMessage: MessageRow = {

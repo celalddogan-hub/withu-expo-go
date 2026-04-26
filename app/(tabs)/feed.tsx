@@ -21,7 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { supabase } from '../../src/lib/supabase';
-import { checkContentSafety, getContentSafetyAlert } from '../../src/lib/contentSafety';
+import { guardContentOrShowHelp } from '../../src/lib/crisisSafety';
 import { WithUAvatar, WithUScreen, WithUTopBar } from '../../src/components/withu/WithUPrimitives';
 
 type FeedType = 'all' | 'activity' | 'photo' | 'event' | 'question';
@@ -282,10 +282,13 @@ export default function FeedScreen() {
       return;
     }
 
-    const safety = checkContentSafety(`${activityTitle} ${text}`);
-    if (!safety.allowed) {
-      const alert = getContentSafetyAlert(safety);
-      Alert.alert(alert.title, alert.body);
+    const isSafe = await guardContentOrShowHelp({
+      text: `${activityTitle} ${text}`,
+      reporterId: currentUserId,
+      router,
+      surface: 'feed',
+    });
+    if (!isSafe) {
       return;
     }
 
@@ -365,10 +368,14 @@ export default function FeedScreen() {
     const text = commentText.trim();
     if (!text) return;
 
-    const safety = checkContentSafety(text);
-    if (!safety.allowed) {
-      const alert = getContentSafetyAlert(safety);
-      Alert.alert(alert.title, alert.body);
+    const isSafe = await guardContentOrShowHelp({
+      text,
+      reporterId: currentUserId,
+      router,
+      surface: 'feed_comment',
+      targetUserId: commentPost.user_id,
+    });
+    if (!isSafe) {
       return;
     }
 

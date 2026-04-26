@@ -39,6 +39,9 @@ const SEXUAL_PATTERNS = [
 ];
 
 const SELF_HARM_PATTERNS = [
+  /\b(jag\s+vill|jag\s+ska|kommer\s+att|tänker)\s+(ta\s+livet\s+av\s+mig|dö|skada\s+mig|försvinna)\b/i,
+  /\b(orkar\s+inte\s+leva|vill\s+inte\s+leva|ta\s+mitt\s+liv|skada\s+mig\s+själv)\b/i,
+  /\b(i\s+want\s+to\s+die|i\s+will\s+kill\s+myself|i\s+want\s+to\s+kill\s+myself|hurt\s+myself)\b/i,
   /\b(ta\s+livet\s+av\s+dig|gå\s+och\s+dö|kill\s+yourself|kys)\b/i,
 ];
 

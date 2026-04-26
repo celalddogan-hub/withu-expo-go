@@ -16,7 +16,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { supabase } from '../../src/lib/supabase';
 import { getMatchedTargetIds, makeConversationKey } from '../../src/lib/matchChat';
-import { checkContentSafety, getContentSafetyAlert } from '../../src/lib/contentSafety';
+import { guardContentOrShowHelp } from '../../src/lib/crisisSafety';
 import {
   withuColors,
   withuRadius,
@@ -231,10 +231,13 @@ export default function NowScreen() {
   const goLive = async () => {
     if (!currentUserId || saving) return;
 
-    const safety = checkContentSafety(message);
-    if (!safety.allowed) {
-      const alert = getContentSafetyAlert(safety);
-      Alert.alert(alert.title, alert.body);
+    const isSafe = await guardContentOrShowHelp({
+      text: message,
+      reporterId: currentUserId,
+      router,
+      surface: 'now',
+    });
+    if (!isSafe) {
       return;
     }
 

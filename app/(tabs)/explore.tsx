@@ -17,6 +17,7 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { supabase } from '../../src/lib/supabase';
+import { guardContentOrShowHelp } from '../../src/lib/crisisSafety';
 import {
   ensureMatchedConversation,
   getMatchedTargetIds,
@@ -561,6 +562,14 @@ export default function TankarScreen() {
     try {
       setPublishing(true);
 
+      const isSafe = await guardContentOrShowHelp({
+        text: trimmed,
+        reporterId: currentUserId,
+        router,
+        surface: 'thought',
+      });
+      if (!isSafe) return;
+
       const { error } = await supabase.from('thoughts').insert({
         user_id: currentUserId,
         text: trimmed,
@@ -662,6 +671,15 @@ export default function TankarScreen() {
 
     try {
       setSubmittingCommentId(thoughtId);
+
+      const isSafe = await guardContentOrShowHelp({
+        text: value,
+        reporterId: currentUserId,
+        router,
+        surface: 'thought_comment',
+        targetUserId: thought.userId,
+      });
+      if (!isSafe) return;
 
       const { data, error } = await supabase
         .from('thought_comments')

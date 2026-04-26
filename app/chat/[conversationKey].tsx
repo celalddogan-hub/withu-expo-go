@@ -30,6 +30,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../../src/lib/supabase';
 import { getMatchedTargetIds } from '../../src/lib/matchChat';
+import { guardContentOrShowHelp } from '../../src/lib/crisisSafety';
 import {
   createScopedRealtimeChannel,
   removeChannelSafely,
@@ -723,6 +724,16 @@ export default function ChatConversationScreen() {
   const sendTextMessage = async () => {
     const trimmed = draft.trim();
     if (!trimmed || !currentUserId || !conversationKey || isBusy) return;
+
+    const isSafe = await guardContentOrShowHelp({
+      text: trimmed,
+      reporterId: currentUserId,
+      router,
+      surface: 'chat',
+      targetUserId: otherProfile?.id,
+      conversationKey,
+    });
+    if (!isSafe) return;
 
     try {
       setSendingText(true);
