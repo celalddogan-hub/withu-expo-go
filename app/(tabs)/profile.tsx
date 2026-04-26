@@ -20,6 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { supabase } from '../../src/lib/supabase';
 import VolunteerStatusCard from '../../src/components/volunteer/VolunteerStatusCard';
+import { checkContentSafety, getContentSafetyAlert } from '../../src/lib/contentSafety';
 
 type Category = {
   title: string;
@@ -31,6 +32,7 @@ type ProfileRow = {
   id: string;
   name: string | null;
   city: string | null;
+  country: string | null;
   age: number | null;
   bio: string | null;
   avatar_url: string | null;
@@ -118,6 +120,7 @@ export default function ProfileScreen() {
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [city, setCity] = useState('');
+  const [country, setCountry] = useState('Sverige');
   const [age, setAge] = useState('');
   const [bio, setBio] = useState('');
   const [minAge, setMinAge] = useState(DEFAULT_MIN_AGE);
@@ -173,7 +176,7 @@ export default function ProfileScreen() {
           supabase
             .from('profiles')
             .select(
-              'id, name, city, age, bio, avatar_url, min_age, max_age, activities, is_bankid_verified'
+              'id, name, city, country, age, bio, avatar_url, min_age, max_age, activities, is_bankid_verified'
             )
             .eq('id', authData.user.id)
             .single(),
@@ -195,6 +198,7 @@ export default function ProfileScreen() {
       if (profile) {
         setName(profile.name ?? '');
         setCity(profile.city ?? '');
+        setCountry(profile.country ?? 'Sverige');
         setAge(profile.age ? String(profile.age) : '');
         setBio(profile.bio ?? '');
         setAvatarUrl(profile.avatar_url ?? null);
@@ -359,7 +363,12 @@ export default function ProfileScreen() {
       }
 
       if (!city.trim()) {
-        Alert.alert('Plats saknas', 'Fyll i din plats.');
+        Alert.alert('Stad saknas', 'Fyll i vilken stad du bor i.');
+        return;
+      }
+
+      if (!country.trim()) {
+        Alert.alert('Land saknas', 'Fyll i vilket land du bor i.');
         return;
       }
 
@@ -370,6 +379,13 @@ export default function ProfileScreen() {
 
       if (minAgeNumber < 18 || maxAgeNumber > 99 || minAgeNumber > maxAgeNumber) {
         Alert.alert('Ogiltigt åldersspann', 'Kontrollera åldersfiltret.');
+        return;
+      }
+
+      const safety = checkContentSafety(bio);
+      if (!safety.allowed) {
+        const alert = getContentSafetyAlert(safety);
+        Alert.alert(alert.title, alert.body);
         return;
       }
 
@@ -385,12 +401,14 @@ export default function ProfileScreen() {
         id: authData.user.id,
         name: name.trim(),
         city: city.trim(),
+        country: country.trim(),
         age: ageNumber,
         bio: bio.trim(),
         avatar_url: avatarUrl,
         min_age: minAgeNumber,
         max_age: maxAgeNumber,
         activities: selectedActivities,
+        is_profile_complete: true,
         updated_at: new Date().toISOString(),
       };
 
@@ -510,12 +528,18 @@ export default function ProfileScreen() {
 
   return (
     <>
-      <ScrollView
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 84 : 0}
         style={styles.screen}
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
       >
-        <View style={[styles.pageWrap, isWide && styles.pageWrapWide]}>
+        <ScrollView
+          style={styles.screen}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+        >
+          <View style={[styles.pageWrap, isWide && styles.pageWrapWide]}>
           <View style={styles.pageHeader}>
             <Text style={styles.pageTitle}>Profil</Text>
             <Text style={styles.pageSubtitle}>Din profil och hur andra ser dig</Text>
@@ -557,8 +581,9 @@ export default function ProfileScreen() {
                 <Text style={styles.heroEyebrow}>MIN PROFIL</Text>
                 <Text style={styles.profileName}>{name || 'Ditt namn'}</Text>
                 <Text style={styles.profileMeta}>
-                  {city || 'Din plats'}
-                  {age ? ` • ${age} år` : ''}
+                  {[city || 'Din plats', country || null, age ? `${age} år` : null]
+                    .filter(Boolean)
+                    .join(' • ')}
                 </Text>
 
                 <View style={styles.heroPillsRow}>
@@ -785,7 +810,16 @@ export default function ProfileScreen() {
                 <TextInput
                   value={city}
                   onChangeText={setCity}
-                  placeholder="Din stad"
+                  placeholder="Till exempel Stockholm"
+                  placeholderTextColor="#8A97B8"
+                  style={styles.input}
+                />
+
+                <Text style={styles.fieldLabel}>Land</Text>
+                <TextInput
+                  value={country}
+                  onChangeText={setCountry}
+                  placeholder="Till exempel Sverige"
                   placeholderTextColor="#8A97B8"
                   style={styles.input}
                 />
@@ -895,8 +929,9 @@ export default function ProfileScreen() {
               </TouchableOpacity>
             </>
           )}
-        </View>
-      </ScrollView>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       <Modal
         visible={deleteModalVisible}
@@ -989,12 +1024,12 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#F4F6FB',
+    backgroundColor: '#F7F6F2',
   },
 
   scrollContent: {
     paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingTop: 14,
     paddingBottom: 40,
   },
 
@@ -1009,21 +1044,21 @@ const styles = StyleSheet.create({
   },
 
   pageHeader: {
-    marginBottom: 14,
+    marginBottom: 12,
   },
 
   pageTitle: {
-    fontSize: 34,
-    lineHeight: 40,
-    fontWeight: '800',
-    color: '#20325E',
-    marginBottom: 6,
+    fontSize: 30,
+    lineHeight: 36,
+    fontWeight: '900',
+    color: '#0F1E38',
+    marginBottom: 4,
   },
 
   pageSubtitle: {
-    fontSize: 16,
-    lineHeight: 24,
-    color: '#7A8AAA',
+    fontSize: 14,
+    lineHeight: 21,
+    color: '#6D778C',
   },
 
   loadingWrap: {
@@ -1041,15 +1076,15 @@ const styles = StyleSheet.create({
   },
 
   heroCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 28,
-    padding: 22,
-    marginBottom: 14,
+    backgroundColor: '#0F1E38',
+    borderRadius: 26,
+    padding: 20,
+    marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#E6EAF4',
-    shadowColor: '#20325E',
-    shadowOpacity: Platform.OS === 'web' ? 0.05 : 0.08,
-    shadowRadius: 18,
+    borderColor: 'rgba(255,255,255,0.08)',
+    shadowColor: '#0F1E38',
+    shadowOpacity: Platform.OS === 'web' ? 0.06 : 0.16,
+    shadowRadius: 20,
     shadowOffset: { width: 0, height: 10 },
     elevation: 3,
   },
@@ -1059,9 +1094,9 @@ const styles = StyleSheet.create({
   },
 
   avatarButton: {
-    width: 122,
-    height: 122,
-    borderRadius: 61,
+    width: 108,
+    height: 108,
+    borderRadius: 54,
     position: 'relative',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1069,32 +1104,32 @@ const styles = StyleSheet.create({
   },
 
   avatarImage: {
-    width: 122,
-    height: 122,
-    borderRadius: 61,
-    borderWidth: 4,
-    borderColor: '#1C5E52',
+    width: 108,
+    height: 108,
+    borderRadius: 54,
+    borderWidth: 3,
+    borderColor: '#FFFFFF',
   },
 
   avatarFallback: {
-    width: 122,
-    height: 122,
-    borderRadius: 61,
-    backgroundColor: '#F2F5FB',
-    borderWidth: 4,
-    borderColor: '#1C5E52',
+    width: 108,
+    height: 108,
+    borderRadius: 54,
+    backgroundColor: '#EEF4FF',
+    borderWidth: 3,
+    borderColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
   },
 
   cameraBadge: {
     position: 'absolute',
-    right: 4,
-    bottom: 4,
+    right: 2,
+    bottom: 2,
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#1C5E52',
+    backgroundColor: '#E05C4B',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
@@ -1111,23 +1146,23 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     letterSpacing: 1.4,
     fontWeight: '800',
-    color: '#7A8AAA',
+    color: '#7ED3C4',
     marginBottom: 8,
   },
 
   profileName: {
-    fontSize: 32,
-    lineHeight: 38,
-    fontWeight: '800',
-    color: '#20325E',
+    fontSize: 29,
+    lineHeight: 34,
+    fontWeight: '900',
+    color: '#FFFFFF',
     marginBottom: 4,
     textAlign: 'center',
   },
 
   profileMeta: {
-    fontSize: 16,
+    fontSize: 14,
     lineHeight: 22,
-    color: '#7A8AAA',
+    color: 'rgba(255,255,255,0.72)',
     marginBottom: 12,
     textAlign: 'center',
   },
@@ -1142,9 +1177,9 @@ const styles = StyleSheet.create({
   heroPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#EEF4FF',
+    backgroundColor: 'rgba(255,255,255,0.10)',
     borderWidth: 1,
-    borderColor: '#D8E4FA',
+    borderColor: 'rgba(255,255,255,0.14)',
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -1153,7 +1188,7 @@ const styles = StyleSheet.create({
   },
 
   heroPillText: {
-    color: '#20325E',
+    color: '#FFFFFF',
     fontSize: 13,
     fontWeight: '700',
     marginLeft: 6,
@@ -1162,7 +1197,7 @@ const styles = StyleSheet.create({
   emailText: {
     fontSize: 14,
     lineHeight: 20,
-    color: '#8A97B8',
+    color: 'rgba(255,255,255,0.62)',
   },
 
   heroActions: {
@@ -1176,7 +1211,7 @@ const styles = StyleSheet.create({
   primaryButton: {
     minHeight: 52,
     borderRadius: 16,
-    backgroundColor: '#1C5E52',
+    backgroundColor: '#E05C4B',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 16,
@@ -1192,9 +1227,9 @@ const styles = StyleSheet.create({
   secondaryButtonStrong: {
     minHeight: 52,
     borderRadius: 16,
-    backgroundColor: '#F1F5FC',
+    backgroundColor: 'rgba(255,255,255,0.10)',
     borderWidth: 1,
-    borderColor: '#DCE4F3',
+    borderColor: 'rgba(255,255,255,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 16,
@@ -1202,7 +1237,7 @@ const styles = StyleSheet.create({
   },
 
   secondaryButtonStrongText: {
-    color: '#20325E',
+    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '800',
   },
@@ -1224,7 +1259,7 @@ const styles = StyleSheet.create({
 
   removeAvatarText: {
     marginTop: 4,
-    color: '#A15353',
+    color: 'rgba(255,255,255,0.7)',
     fontSize: 14,
     fontWeight: '600',
     textAlign: 'center',
@@ -1238,8 +1273,8 @@ const styles = StyleSheet.create({
   statCard: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    borderRadius: 22,
-    paddingVertical: 18,
+    borderRadius: 18,
+    paddingVertical: 14,
     paddingHorizontal: 10,
     borderWidth: 1,
     borderColor: '#E6EAF4',
@@ -1252,10 +1287,10 @@ const styles = StyleSheet.create({
   },
 
   statValue: {
-    fontSize: 22,
-    lineHeight: 28,
-    fontWeight: '800',
-    color: '#20325E',
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: '900',
+    color: '#0F1E38',
     marginBottom: 5,
   },
 
@@ -1269,9 +1304,9 @@ const styles = StyleSheet.create({
 
   card: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    padding: 20,
-    marginBottom: 14,
+    borderRadius: 20,
+    padding: 18,
+    marginBottom: 12,
     borderWidth: 1,
     borderColor: '#E6EAF4',
     shadowColor: '#20325E',
@@ -1296,17 +1331,17 @@ const styles = StyleSheet.create({
   },
 
   sectionTitle: {
-    fontSize: 28,
-    lineHeight: 34,
-    fontWeight: '800',
-    color: '#20325E',
-    marginBottom: 10,
+    fontSize: 21,
+    lineHeight: 27,
+    fontWeight: '900',
+    color: '#0F1E38',
+    marginBottom: 8,
   },
 
   bodyText: {
-    fontSize: 17,
-    lineHeight: 28,
-    color: '#2C3957',
+    fontSize: 15,
+    lineHeight: 24,
+    color: '#34405A',
   },
 
   matchingText: {

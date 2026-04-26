@@ -453,7 +453,8 @@ export default function ChatListScreen() {
             'id, conversation_key, sender_id, content, message_type, media_url, read_at, created_at'
           )
           .in('conversation_key', conversationKeys)
-          .order('created_at', { ascending: false }),
+          .order('created_at', { ascending: false })
+          .limit(120),
       ]);
 
       if (profileError) throw profileError;
@@ -614,6 +615,17 @@ export default function ChatListScreen() {
               </Text>
             </Pressable>
 
+            <Pressable style={styles.matchesShortcut} onPress={() => router.push('/matches')}>
+              <Text style={styles.matchesShortcutEmoji}>💙</Text>
+              <View style={styles.matchesShortcutTextWrap}>
+                <Text style={styles.matchesShortcutTitle}>Matcher</Text>
+                <Text style={styles.matchesShortcutText}>
+                  Se personer som du kan börja prata med.
+                </Text>
+              </View>
+              <Text style={styles.matchesShortcutArrow}>›</Text>
+            </Pressable>
+
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionEmoji}>📨</Text>
               <Text style={styles.sectionTitle}>Dina samtal</Text>
@@ -689,6 +701,42 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: {
     opacity: 0.6,
+  },
+
+  matchesShortcut: {
+    backgroundColor: withuColors.white,
+    borderRadius: withuRadius.xl,
+    borderWidth: 1,
+    borderColor: withuColors.line,
+    padding: withuSpacing.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 18,
+    ...withuShadows.card,
+  },
+  matchesShortcutEmoji: {
+    fontSize: 30,
+    marginRight: 12,
+  },
+  matchesShortcutTextWrap: {
+    flex: 1,
+  },
+  matchesShortcutTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: withuColors.navy,
+    marginBottom: 2,
+  },
+  matchesShortcutText: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: withuColors.muted,
+    fontWeight: '700',
+  },
+  matchesShortcutArrow: {
+    fontSize: 28,
+    color: withuColors.muted,
+    marginLeft: 8,
   },
 
   sectionHeader: {

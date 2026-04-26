@@ -2,6 +2,7 @@ export const withuColors = {
   navy: '#1B2B4B',
   navy2: '#2D4A7A',
   coral: '#E05C4B',
+  teal: '#1C5E52',
   cream: '#FAFAF8',
   white: '#FFFFFF',
   text: '#1B2B4B',
@@ -10,6 +11,7 @@ export const withuColors = {
   line: '#E7E7E3',
   success: '#4CAF8C',
   successBg: 'rgba(76,175,140,0.10)',
+  tealBg: 'rgba(28,94,82,0.10)',
   coralBg: 'rgba(224,92,75,0.10)',
   navyBg: 'rgba(27,43,75,0.10)',
   overlay: 'rgba(0,0,0,0.6)',
@@ -96,20 +98,20 @@ export const withuShadows = {
 };
 
 export const withuActivities = [
-  '☕ Fika',
-  '🚶 Promenad',
-  '🎮 Spela',
-  '💬 Prata',
-  '💪 Träna',
-  '🎵 Musik',
-  '📚 Studera',
-  '🌿 Natur',
+  'Fika',
+  'Promenad',
+  'Spela',
+  'Prata',
+  'Träna',
+  'Musik',
+  'Studera',
+  'Natur',
 ];
 
 export const withuAgeGroups = [
-  { label: '15–17 år', tag: 'Ungdom' },
-  { label: '18–25 år', tag: 'Unga vuxna' },
-  { label: '26–40 år', tag: 'Vuxna' },
-  { label: '41–60 år', tag: 'Mitt i livet' },
-  { label: '61–90+ år', tag: 'Seniorer' },
+  { label: '15-17 år', tag: 'Ungdom' },
+  { label: '18-25 år', tag: 'Unga vuxna' },
+  { label: '26-40 år', tag: 'Vuxna' },
+  { label: '41-60 år', tag: 'Mitt i livet' },
+  { label: '61-90+ år', tag: 'Seniorer' },
 ];

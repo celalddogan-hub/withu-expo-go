@@ -32,7 +32,6 @@ async function repairMatchPair(currentUserId: string, otherUserId: string) {
       .eq('user_id', currentUserId)
       .eq('target_id', otherUserId)
       .in('action', [...ALLOWED_MATCH_ACTIONS]),
-
     supabase
       .from('matches')
       .update({ is_match: true })
@@ -48,42 +47,34 @@ async function repairMatchPair(currentUserId: string, otherUserId: string) {
 export async function getMatchedTargetIds(currentUserId: string): Promise<Set<string>> {
   if (!currentUserId) return new Set<string>();
 
-  const [
-    { data: outgoingRows, error: outgoingError },
-    { data: incomingRows, error: incomingError },
-  ] = await Promise.all([
-    supabase
-      .from('matches')
-      .select('id, user_id, target_id, action, is_match, created_at')
-      .eq('user_id', currentUserId)
-      .in('action', [...ALLOWED_MATCH_ACTIONS]),
-
-    supabase
-      .from('matches')
-      .select('id, user_id, target_id, action, is_match, created_at')
-      .eq('target_id', currentUserId)
-      .in('action', [...ALLOWED_MATCH_ACTIONS]),
-  ]);
+  const [{ data: outgoingRows, error: outgoingError }, { data: incomingRows, error: incomingError }] =
+    await Promise.all([
+      supabase
+        .from('matches')
+        .select('id, user_id, target_id, action, is_match, created_at')
+        .eq('user_id', currentUserId)
+        .in('action', [...ALLOWED_MATCH_ACTIONS]),
+      supabase
+        .from('matches')
+        .select('id, user_id, target_id, action, is_match, created_at')
+        .eq('target_id', currentUserId)
+        .in('action', [...ALLOWED_MATCH_ACTIONS]),
+    ]);
 
   if (outgoingError) throw outgoingError;
   if (incomingError) throw incomingError;
 
   const outgoing = (outgoingRows ?? []) as MatchRow[];
   const incoming = (incomingRows ?? []) as MatchRow[];
-
   const outgoingTargetIds = new Set(outgoing.map((row) => row.target_id));
-
   const reciprocalIds = [...new Set(incoming.map((row) => row.user_id))].filter((id) =>
     outgoingTargetIds.has(id)
   );
-
   const matchedIds = new Set(
     outgoing.filter((row) => row.is_match === true).map((row) => row.target_id)
   );
 
-  const needRepairIds = reciprocalIds.filter((id) => !matchedIds.has(id));
-
-  for (const otherUserId of needRepairIds) {
+  for (const otherUserId of reciprocalIds.filter((id) => !matchedIds.has(id))) {
     await repairMatchPair(currentUserId, otherUserId);
     matchedIds.add(otherUserId);
   }
@@ -100,24 +91,21 @@ export async function ensureMatchedConversation(
     throw new Error('Saknar användare för att öppna chatt.');
   }
 
-  const [
-    { data: ownRows, error: ownError },
-    { data: otherRows, error: otherError },
-  ] = await Promise.all([
-    supabase
-      .from('matches')
-      .select('id, user_id, target_id, action, is_match, created_at')
-      .eq('user_id', currentUserId)
-      .eq('target_id', otherUserId)
-      .in('action', [...ALLOWED_MATCH_ACTIONS]),
-
-    supabase
-      .from('matches')
-      .select('id, user_id, target_id, action, is_match, created_at')
-      .eq('user_id', otherUserId)
-      .eq('target_id', currentUserId)
-      .in('action', [...ALLOWED_MATCH_ACTIONS]),
-  ]);
+  const [{ data: ownRows, error: ownError }, { data: otherRows, error: otherError }] =
+    await Promise.all([
+      supabase
+        .from('matches')
+        .select('id, user_id, target_id, action, is_match, created_at')
+        .eq('user_id', currentUserId)
+        .eq('target_id', otherUserId)
+        .in('action', [...ALLOWED_MATCH_ACTIONS]),
+      supabase
+        .from('matches')
+        .select('id, user_id, target_id, action, is_match, created_at')
+        .eq('user_id', otherUserId)
+        .eq('target_id', currentUserId)
+        .in('action', [...ALLOWED_MATCH_ACTIONS]),
+    ]);
 
   if (ownError) throw ownError;
   if (otherError) throw otherError;
@@ -125,16 +113,11 @@ export async function ensureMatchedConversation(
   const own = (ownRows ?? []) as MatchRow[];
   const other = (otherRows ?? []) as MatchRow[];
 
-  const isMutual = own.length > 0 && other.length > 0;
-
-  if (!isMutual) {
+  if (own.length === 0 || other.length === 0) {
     throw new Error('Ni måste båda ha hört av er innan chatten kan öppnas.');
   }
 
-  const ownIsMatched = own.some((row) => row.is_match === true);
-  const otherIsMatched = other.some((row) => row.is_match === true);
-
-  if (!ownIsMatched || !otherIsMatched) {
+  if (!own.some((row) => row.is_match === true) || !other.some((row) => row.is_match === true)) {
     await repairMatchPair(currentUserId, otherUserId);
   }
 
@@ -149,9 +132,7 @@ export async function ensureMatchedConversation(
 
     if (existingMessagesError) throw existingMessagesError;
 
-    const hasMessages = ((existingMessages ?? []) as MessageRow[]).length > 0;
-
-    if (!hasMessages) {
+    if (((existingMessages ?? []) as MessageRow[]).length === 0) {
       const { error: insertMessageError } = await supabase.from('messages').insert({
         conversation_key: conversationKey,
         sender_id: currentUserId,

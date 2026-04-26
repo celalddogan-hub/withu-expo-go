@@ -62,12 +62,16 @@ export default function RootLayout() {
 
   useEffect(() => {
     let cleanup: void | (() => void);
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
     if (session) {
-      cleanup = startPushRegistration();
+      timer = setTimeout(() => {
+        cleanup = startPushRegistration();
+      }, 2500);
     }
 
     return () => {
+      if (timer) clearTimeout(timer);
       if (typeof cleanup === 'function') cleanup();
     };
   }, [session]);

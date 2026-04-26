@@ -2,6 +2,8 @@ import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -620,13 +622,19 @@ export default function VolunteerApplyScreen() {
         right={<WithUAvatar emoji="😊" size={34} />}
       />
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 84 : 0}
+        style={styles.keyboardWrap}
       >
-        <WithUPage style={styles.page}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+        >
+          <WithUPage style={styles.page}>
           <Pressable style={styles.backRow} onPress={() => router.back()}>
             <Text style={styles.backText}>← Tillbaka</Text>
           </Pressable>
@@ -932,13 +940,18 @@ export default function VolunteerApplyScreen() {
               style={styles.submitButton}
             />
           </WithUCard>
-        </WithUPage>
-      </ScrollView>
+          </WithUPage>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </WithUScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  keyboardWrap: {
+    flex: 1,
+    backgroundColor: withuColors.cream,
+  },
   scroll: {
     flex: 1,
     backgroundColor: withuColors.cream,

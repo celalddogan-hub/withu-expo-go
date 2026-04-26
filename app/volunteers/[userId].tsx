@@ -2,6 +2,8 @@ import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -382,13 +384,20 @@ export default function VolunteerProfileScreen() {
         right={<WithUAvatar emoji="🤝" size={34} />}
       />
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
-        showsVerticalScrollIndicator={false}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 84 : 0}
+        style={styles.keyboardWrap}
       >
-        <WithUPage style={styles.page}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.content}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+        >
+          <WithUPage style={styles.page}>
           <View style={styles.heroCard}>
             <WithUAvatar
               emoji={getAvatarEmoji(volunteer.role_sv, volunteer.avatar_emoji)}
@@ -554,13 +563,18 @@ export default function VolunteerProfileScreen() {
             onPress={() => router.back()}
             style={styles.secondaryButton}
           />
-        </WithUPage>
-      </ScrollView>
+          </WithUPage>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </WithUScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  keyboardWrap: {
+    flex: 1,
+    backgroundColor: withuColors.cream,
+  },
   scroll: {
     flex: 1,
     backgroundColor: withuColors.cream,
