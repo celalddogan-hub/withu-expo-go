@@ -39,6 +39,32 @@ export default function AdminHomeScreen() {
         </View>
 
         <WithUCard style={styles.mainCard}>
+          <WithUSectionLabel>Kommun & effekt</WithUSectionLabel>
+          <WithUTitle style={styles.cardTitle}>Statistikdashboard</WithUTitle>
+          <WithUSubtitle>
+            Se anonymiserade siffror för användare, aktivitet, rapporter, blockeringar och volontärer.
+          </WithUSubtitle>
+
+          <View style={styles.iconRow}>
+            <View style={[styles.bigIconWrap, styles.blueIconWrap]}>
+              <Text style={styles.bigIcon}>📊</Text>
+            </View>
+            <View style={styles.textCol}>
+              <Text style={styles.blockTitle}>Öppna statistik</Text>
+              <Text style={styles.blockText}>
+                Underlag för kommunpilot och intern trygghetsuppföljning.
+              </Text>
+            </View>
+          </View>
+
+          <WithUPrimaryButton
+            title="Öppna statistik"
+            onPress={() => router.push('/admin/stats')}
+            style={styles.actionButton}
+          />
+        </WithUCard>
+
+        <WithUCard style={styles.mainCard}>
           <WithUSectionLabel>Moderering</WithUSectionLabel>
           <WithUTitle style={styles.cardTitle}>Rapporter</WithUTitle>
           <WithUSubtitle>
@@ -98,6 +124,10 @@ export default function AdminHomeScreen() {
             <Text style={styles.inlineLinkText}>Gå till rapporter</Text>
           </Pressable>
 
+          <Pressable style={styles.inlineLink} onPress={() => router.push('/admin/stats')}>
+            <Text style={styles.inlineLinkText}>Gå till statistik</Text>
+          </Pressable>
+
           <Pressable style={styles.inlineLink} onPress={() => router.push('/admin/volunteers')}>
             <Text style={styles.inlineLinkText}>Gå till volontäransökningar</Text>
           </Pressable>
@@ -154,6 +184,10 @@ const styles = StyleSheet.create({
   greenIconWrap: {
     backgroundColor: '#EAF5F1',
     borderColor: '#B8DDD5',
+  },
+  blueIconWrap: {
+    backgroundColor: '#EEF4FF',
+    borderColor: '#D8E4FA',
   },
   bigIcon: {
     fontSize: 26,
