@@ -37,6 +37,7 @@ type FeedPost = {
   activity_icon: string | null;
   activity_title: string | null;
   image_path: string | null;
+  image_url?: string | null;
   like_count: number | null;
   comment_count: number | null;
   participant_count: number | null;
@@ -97,12 +98,6 @@ function isMissingFeedTables(error: unknown) {
 
 function normalizeUrl(url: string) {
   return url.toLowerCase().startsWith('http') ? url : `https://${url}`;
-}
-
-function publicImageUrl(path?: string | null) {
-  if (!path) return null;
-  const { data } = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path);
-  return data.publicUrl;
 }
 
 function renderLinkedText(text: string) {
@@ -184,6 +179,22 @@ export default function FeedScreen() {
 
       const nextPosts = (data ?? []) as unknown as FeedPost[];
       const ids = nextPosts.map((post) => post.id);
+      const postsWithImages = await Promise.all(
+        nextPosts.map(async (post) => {
+          if (!post.image_path) return { ...post, image_url: null };
+
+          const { data: signedData } = await supabase.storage
+            .from(IMAGE_BUCKET)
+            .createSignedUrl(post.image_path, 60 * 60);
+
+          if (signedData?.signedUrl) {
+            return { ...post, image_url: signedData.signedUrl };
+          }
+
+          const { data: publicData } = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(post.image_path);
+          return { ...post, image_url: publicData.publicUrl || null };
+        })
+      );
 
       if (ids.length) {
         const [{ data: likes }, { data: participants }] = await Promise.all([
@@ -194,7 +205,7 @@ export default function FeedScreen() {
         const joinedIds = new Set((participants ?? []).map((row) => row.post_id as string));
 
         setPosts(
-          nextPosts.map((post) => ({
+          postsWithImages.map((post) => ({
             ...post,
             liked_by_me: likedIds.has(post.id),
             joined_by_me: joinedIds.has(post.id),
@@ -403,7 +414,7 @@ export default function FeedScreen() {
 
   const renderPost = ({ item }: { item: FeedPost }) => {
     const meta = TYPE_META[item.type] || TYPE_META.activity;
-    const imageUrl = publicImageUrl(item.image_path);
+    const imageUrl = item.image_url;
 
     return (
       <View style={styles.postCard}>
