@@ -87,6 +87,32 @@ export default function AdminHomeScreen() {
         </WithUCard>
 
         <WithUCard style={styles.mainCard}>
+          <WithUSectionLabel>Säkerhet</WithUSectionLabel>
+          <WithUTitle style={styles.cardTitle}>Supabase-kontroll</WithUTitle>
+          <WithUSubtitle>
+            Kontrollera att viktiga tabeller har RLS och policies innan fler användare släpps in.
+          </WithUSubtitle>
+
+          <View style={styles.iconRow}>
+            <View style={[styles.bigIconWrap, styles.greenIconWrap]}>
+              <Text style={styles.bigIcon}>🛡️</Text>
+            </View>
+            <View style={styles.textCol}>
+              <Text style={styles.blockTitle}>Öppna säkerhetskontroll</Text>
+              <Text style={styles.blockText}>
+                Visar grönt, gult eller rött för tabellerna som bär appens trygghet.
+              </Text>
+            </View>
+          </View>
+
+          <WithUPrimaryButton
+            title="Öppna säkerhet"
+            onPress={() => router.push('/admin/security')}
+            style={styles.actionButton}
+          />
+        </WithUCard>
+
+        <WithUCard style={styles.mainCard}>
           <WithUSectionLabel>Moderering</WithUSectionLabel>
           <WithUTitle style={styles.cardTitle}>Rapporter</WithUTitle>
           <WithUSubtitle>
@@ -152,6 +178,10 @@ export default function AdminHomeScreen() {
 
           <Pressable style={styles.inlineLink} onPress={() => router.push('/admin/stats')}>
             <Text style={styles.inlineLinkText}>Gå till statistik</Text>
+          </Pressable>
+
+          <Pressable style={styles.inlineLink} onPress={() => router.push('/admin/security')}>
+            <Text style={styles.inlineLinkText}>Gå till säkerhet</Text>
           </Pressable>
 
           <Pressable style={styles.inlineLink} onPress={() => router.push('/admin/volunteers')}>
