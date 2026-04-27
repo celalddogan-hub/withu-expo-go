@@ -94,7 +94,10 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="explore"
         options={{
-          href: null,
+          title: 'Tankar',
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon active="leaf" inactive="leaf-outline" color={color} focused={focused} />
+          ),
         }}
       />
 
