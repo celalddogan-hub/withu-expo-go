@@ -60,10 +60,6 @@ export async function signUpWithEmail(
     throw new Error('Fyll i en giltig e-postadress.');
   }
 
-  if (!normalizedPhone || normalizedPhone.length < 7) {
-    throw new Error('Fyll i ditt telefonnummer.');
-  }
-
   if (!trimmedPassword) {
     throw new Error('Fyll i ett lösenord.');
   }
@@ -84,9 +80,7 @@ export async function signUpWithEmail(
     email: normalizedEmail,
     password: trimmedPassword,
     options: {
-      data: {
-        phone_number: normalizedPhone || null,
-      },
+      data: normalizedPhone.length >= 7 ? { phone_number: normalizedPhone } : {},
     },
   });
 

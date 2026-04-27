@@ -436,11 +436,9 @@ export default function FeedScreen() {
         onPress: async () => {
           try {
             setSaving(true);
-            const { error } = await supabase
-              .from('posts')
-              .update({ is_active: false })
-              .eq('id', post.id)
-              .eq('user_id', currentUserId);
+            const { error } = await supabase.rpc('delete_own_feed_post', {
+              p_post_id: post.id,
+            });
 
             if (error) throw error;
             setPosts((current) => current.filter((item) => item.id !== post.id));

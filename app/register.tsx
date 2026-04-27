@@ -29,12 +29,11 @@ export default function RegisterScreen() {
   const canSubmit = useMemo(() => {
     return (
       email.trim().length > 0 &&
-      phone.trim().length > 6 &&
       password.length > 0 &&
       confirmPassword.length > 0 &&
       !loading
     );
-  }, [email, phone, password, confirmPassword, loading]);
+  }, [email, password, confirmPassword, loading]);
 
   const handleRegister = async () => {
     if (!canSubmit) return;
@@ -107,12 +106,12 @@ export default function RegisterScreen() {
               maxLength={120}
             />
 
-            <Text style={styles.label}>Telefonnummer</Text>
+            <Text style={styles.label}>Telefonnummer (valfritt)</Text>
             <TextInput
               style={styles.input}
               value={phone}
               onChangeText={setPhone}
-              placeholder="+46..."
+              placeholder="+46... (valfritt tills BankID)"
               placeholderTextColor="#7B8794"
               keyboardType="phone-pad"
               autoCapitalize="none"
