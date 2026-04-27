@@ -518,6 +518,17 @@ export default function FeedScreen() {
               </View>
             </Pressable>
 
+            <Pressable style={styles.thoughtsShortcut} onPress={() => router.push('/explore')}>
+              <View style={styles.thoughtsIcon}>
+                <Ionicons name="leaf" size={22} color="#1C5E52" />
+              </View>
+              <View style={styles.thoughtsTextWrap}>
+                <Text style={styles.thoughtsTitle}>Tankar</Text>
+                <Text style={styles.thoughtsSub}>Skriv anonymt eller läs trygga tankar</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#7A8499" />
+            </Pressable>
+
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
               {FILTERS.map((filter) => {
                 const selected = activeFilter === filter.key;
@@ -729,6 +740,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  thoughtsShortcut: {
+    minHeight: 70,
+    backgroundColor: '#EAF5F1',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#B8DDD5',
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  thoughtsIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  thoughtsTextWrap: { flex: 1 },
+  thoughtsTitle: { color: '#0F1E38', fontSize: 16, fontWeight: '900' },
+  thoughtsSub: { color: '#1C5E52', fontSize: 12, fontWeight: '700', marginTop: 3 },
   filterRow: { gap: 8, paddingBottom: 12 },
   filterChip: {
     borderRadius: 999,
