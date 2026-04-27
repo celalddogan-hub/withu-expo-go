@@ -142,6 +142,17 @@ function initialsFromName(name: string) {
     .join('');
 }
 
+function sanitizeAgeInput(value: string) {
+  return value.replace(/\D/g, '').slice(0, 2);
+}
+
+function parseAgeInput(value: string) {
+  const normalized = sanitizeAgeInput(value);
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export default function ProfileScreen() {
   const router = useRouter();
 
@@ -184,7 +195,7 @@ export default function ProfileScreen() {
     const checks = [
       name.trim().length > 1,
       city.trim().length > 1,
-      Number(age) > 0,
+      (parseAgeInput(age) ?? 0) >= 18,
       bio.trim().length > 10,
       selectedActivities.length > 0,
       !!avatarUrl,
@@ -272,12 +283,12 @@ export default function ProfileScreen() {
         setName(profile.name ?? '');
         setCity(profile.city ?? '');
         setCountry(profile.country ?? 'Sverige');
-        setAge(profile.age ? String(profile.age) : '');
+        setAge(profile.age != null ? String(profile.age) : '');
         setBio(profile.bio ?? '');
         setAvatarUrl(profile.avatar_url ?? null);
         setAvatarEmoji(profile.avatar_emoji ?? '🙂');
-        setMinAge(profile.min_age ? String(profile.min_age) : DEFAULT_MIN_AGE);
-        setMaxAge(profile.max_age ? String(profile.max_age) : DEFAULT_MAX_AGE);
+        setMinAge(profile.min_age != null ? String(profile.min_age) : DEFAULT_MIN_AGE);
+        setMaxAge(profile.max_age != null ? String(profile.max_age) : DEFAULT_MAX_AGE);
         setSelectedActivities(profile.activities ?? []);
         setIsBankIdVerified(!!profile.is_bankid_verified || !!profile.bankid_verified);
         setEmailVerified(!!profile.email_verified || !!authData.user.email_confirmed_at);
@@ -358,6 +369,9 @@ export default function ProfileScreen() {
 
       const { data: publicUrlData } = supabase.storage.from('profile-images').getPublicUrl(filePath);
       const publicUrl = publicUrlData.publicUrl;
+      const currentAgeNumber = parseAgeInput(age);
+      const currentMinAgeNumber = parseAgeInput(minAge) ?? Number(DEFAULT_MIN_AGE);
+      const currentMaxAgeNumber = parseAgeInput(maxAge) ?? Number(DEFAULT_MAX_AGE);
 
       const { error: updateError } = await supabase.from('profiles').upsert(
         {
@@ -365,11 +379,11 @@ export default function ProfileScreen() {
           name: name.trim() || 'Ny användare',
           city: city.trim() || null,
           country: country.trim() || 'Sverige',
-          age: age ? Number(age) : null,
+          age: currentAgeNumber,
           bio: bio.trim() || null,
           avatar_url: publicUrl,
-          min_age: minAge ? Number(minAge) : 18,
-          max_age: maxAge ? Number(maxAge) : 99,
+          min_age: currentMinAgeNumber,
+          max_age: currentMaxAgeNumber,
           activities: selectedActivities,
           updated_at: new Date().toISOString(),
         },
@@ -409,9 +423,9 @@ export default function ProfileScreen() {
 
   async function saveProfile() {
     try {
-      const ageNumber = Number(age);
-      const minAgeNumber = Number(minAge);
-      const maxAgeNumber = Number(maxAge);
+      const ageNumber = parseAgeInput(age);
+      const minAgeNumber = parseAgeInput(minAge) ?? Number(DEFAULT_MIN_AGE);
+      const maxAgeNumber = parseAgeInput(maxAge) ?? Number(DEFAULT_MAX_AGE);
 
       if (!name.trim()) {
         Alert.alert('Namn saknas', 'Fyll i ditt namn.');
@@ -423,8 +437,13 @@ export default function ProfileScreen() {
         return;
       }
 
-      if (!ageNumber || ageNumber < 18 || ageNumber > 99) {
-        Alert.alert('Ogiltig ålder', 'Ålder måste vara mellan 18 och 99.');
+      if (ageNumber == null) {
+        Alert.alert('Ålder saknas', 'Skriv din egen ålder, till exempel 32.');
+        return;
+      }
+
+      if (ageNumber < 18 || ageNumber > 99) {
+        Alert.alert('Ogiltig ålder', 'WithU är 18+ just nu. Ålder måste vara mellan 18 och 99.');
         return;
       }
 
@@ -447,6 +466,9 @@ export default function ProfileScreen() {
       }
 
       setSaving(true);
+      setAge(String(ageNumber));
+      setMinAge(String(minAgeNumber));
+      setMaxAge(String(maxAgeNumber));
 
       const { error } = await supabase.from('profiles').upsert(
         {
@@ -866,7 +888,16 @@ export default function ProfileScreen() {
           <TextInput value={country} onChangeText={setCountry} placeholder="Sverige" placeholderTextColor="#9AA6C1" style={styles.input} />
 
           <Text style={styles.fieldLabel}>Ålder</Text>
-          <TextInput value={age} onChangeText={setAge} placeholder="Din ålder" placeholderTextColor="#9AA6C1" keyboardType="number-pad" style={styles.input} />
+          <TextInput
+            value={age}
+            onChangeText={(value) => setAge(sanitizeAgeInput(value))}
+            placeholder="Din ålder"
+            placeholderTextColor="#9AA6C1"
+            keyboardType="number-pad"
+            maxLength={2}
+            style={styles.input}
+          />
+          <Text style={styles.inputHint}>WithU är 18+ just nu. Åldersfiltret nedan styr vilka du vill matcha med.</Text>
 
           <Text style={styles.fieldLabel}>Om mig</Text>
           <TextInput
@@ -886,11 +917,11 @@ export default function ProfileScreen() {
           <View style={styles.ageRow}>
             <View style={styles.ageCol}>
               <Text style={styles.fieldLabel}>Min ålder</Text>
-              <TextInput value={minAge} onChangeText={setMinAge} placeholder="18" keyboardType="number-pad" style={styles.input} />
+              <TextInput value={minAge} onChangeText={(value) => setMinAge(sanitizeAgeInput(value))} placeholder="18" keyboardType="number-pad" maxLength={2} style={styles.input} />
             </View>
             <View style={styles.ageCol}>
               <Text style={styles.fieldLabel}>Max ålder</Text>
-              <TextInput value={maxAge} onChangeText={setMaxAge} placeholder="99" keyboardType="number-pad" style={styles.input} />
+              <TextInput value={maxAge} onChangeText={(value) => setMaxAge(sanitizeAgeInput(value))} placeholder="99" keyboardType="number-pad" maxLength={2} style={styles.input} />
             </View>
           </View>
         </View>
@@ -1538,6 +1569,13 @@ const styles = StyleSheet.create({
     color: '#20325E',
     fontSize: 16,
     fontWeight: '700',
+  },
+  inputHint: {
+    color: '#74819C',
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 18,
+    marginTop: 7,
   },
   textArea: {
     minHeight: 126,
