@@ -33,8 +33,8 @@ type RemoteProfile = {
   city: string | null;
   bio: string | null;
   activities: string[] | null;
-  preferred_age_min: number | null;
-  preferred_age_max: number | null;
+  min_age: number | null;
+  max_age: number | null;
   is_bankid_verified: boolean | null;
   avatar_emoji: string | null;
   is_profile_complete: boolean | null;
@@ -44,8 +44,8 @@ type RemoteProfile = {
 type OwnProfile = {
   age: number | null;
   activities: string[] | null;
-  preferred_age_min: number | null;
-  preferred_age_max: number | null;
+  min_age: number | null;
+  max_age: number | null;
   is_profile_complete: boolean | null;
 };
 
@@ -162,7 +162,7 @@ export default function SwipeDeck() {
 
       const { data: ownData, error: ownError } = await supabase
         .from('profiles')
-        .select('age, activities, preferred_age_min, preferred_age_max, is_profile_complete')
+        .select('age, activities, min_age, max_age, is_profile_complete')
         .eq('id', user.id)
         .maybeSingle();
 
@@ -180,8 +180,8 @@ export default function SwipeDeck() {
 
       const myAge = ownProfile.age;
       const ownActivities = ownProfile.activities ?? [];
-      const myMin = ownProfile.preferred_age_min ?? 18;
-      const myMax = ownProfile.preferred_age_max ?? 99;
+      const myMin = ownProfile.min_age ?? 18;
+      const myMax = ownProfile.max_age ?? 99;
 
       setMyActivities(ownActivities);
 
@@ -221,7 +221,7 @@ export default function SwipeDeck() {
       const { data, error } = await supabase
         .from('profiles')
         .select(
-          'id, name, age, age_group, city, bio, activities, preferred_age_min, preferred_age_max, is_bankid_verified, avatar_emoji, is_profile_complete, updated_at'
+          'id, name, age, age_group, city, bio, activities, min_age, max_age, is_bankid_verified, avatar_emoji, is_profile_complete, updated_at'
         )
         .neq('id', user.id);
 
@@ -244,8 +244,8 @@ export default function SwipeDeck() {
           return theirAge >= myMin && theirAge <= myMax;
         })
         .filter((profile) => {
-          const theirMin = profile.preferred_age_min ?? 18;
-          const theirMax = profile.preferred_age_max ?? 99;
+          const theirMin = profile.min_age ?? 18;
+          const theirMax = profile.max_age ?? 99;
           return myAge >= theirMin && myAge <= theirMax;
         })
         .sort((a, b) => {

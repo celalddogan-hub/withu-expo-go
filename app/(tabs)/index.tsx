@@ -47,6 +47,8 @@ type ProfileRow = {
   id: string;
   name: string | null;
   age: number | null;
+  min_age: number | null;
+  max_age: number | null;
   city: string | null;
   activities: string[] | null;
   avatar_url: string | null;
@@ -229,7 +231,7 @@ export default function HittaScreen() {
       const nowIso = new Date().toISOString();
       const [ownProfile, outgoingMatches, incomingMatches, blockedIds, adminRows, profileRows, volunteerCountResult] =
         await Promise.all([
-        supabase.from('profiles').select('name').eq('id', user.id).maybeSingle(),
+        supabase.from('profiles').select('name, age, min_age, max_age').eq('id', user.id).maybeSingle(),
         supabase
           .from('matches')
           .select('user_id, target_id, is_match')
@@ -244,7 +246,7 @@ export default function HittaScreen() {
         supabase.from('admins').select('user_id'),
         supabase
           .from('profiles')
-          .select('id, name, age, city, activities, avatar_url, avatar_emoji, is_bankid_verified, bio')
+          .select('id, name, age, min_age, max_age, city, activities, avatar_url, avatar_emoji, is_bankid_verified, bio')
           .neq('id', user.id)
           .eq('is_profile_complete', true)
           .eq('is_discoverable', true)
@@ -262,6 +264,10 @@ export default function HittaScreen() {
       if (adminRows.error) throw adminRows.error;
       if (profileRows.error) throw profileRows.error;
       if (volunteerCountResult.error) throw volunteerCountResult.error;
+
+      const ownAge = ownProfile.data?.age ?? null;
+      const ownMinAge = ownProfile.data?.min_age ?? 18;
+      const ownMaxAge = ownProfile.data?.max_age ?? 99;
 
       setUserName(ownProfile.data?.name || '');
       setVolunteerCount(volunteerCountResult.count ?? 0);
@@ -284,6 +290,16 @@ export default function HittaScreen() {
         ((profileRows.data ?? []) as ProfileRow[])
           .filter((profile) => !adminIds.has(profile.id))
           .filter((profile) => !blockedIds.has(profile.id))
+          .filter((profile) => {
+            if (profile.age == null) return true;
+            return profile.age >= ownMinAge && profile.age <= ownMaxAge;
+          })
+          .filter((profile) => {
+            if (ownAge == null) return true;
+            const theirMinAge = profile.min_age ?? 18;
+            const theirMaxAge = profile.max_age ?? 99;
+            return ownAge >= theirMinAge && ownAge <= theirMaxAge;
+          })
           .filter((profile) => (profile.activities ?? []).length > 0 || !!profile.bio?.trim())
       );
     } catch (error: any) {

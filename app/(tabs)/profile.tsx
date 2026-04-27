@@ -897,7 +897,7 @@ export default function ProfileScreen() {
             maxLength={2}
             style={styles.input}
           />
-          <Text style={styles.inputHint}>WithU är 18+ just nu. Åldersfiltret nedan styr vilka du vill matcha med.</Text>
+          <Text style={styles.inputHint}>WithU är 18+ just nu. Du väljer själv vilka åldrar du vill matcha och kontakta nedan.</Text>
 
           <Text style={styles.fieldLabel}>Om mig</Text>
           <TextInput
@@ -913,14 +913,15 @@ export default function ProfileScreen() {
 
         <View style={styles.card}>
           <Text style={styles.sectionLabel}>MATCHNING</Text>
-          <Text style={styles.sectionTitle}>Åldersfilter</Text>
+          <Text style={styles.sectionTitle}>Vilka åldrar vill du matcha med?</Text>
+          <Text style={styles.inputHint}>Personer utanför detta spann visas inte i Upptäck/Hitta.</Text>
           <View style={styles.ageRow}>
             <View style={styles.ageCol}>
-              <Text style={styles.fieldLabel}>Min ålder</Text>
+              <Text style={styles.fieldLabel}>Från</Text>
               <TextInput value={minAge} onChangeText={(value) => setMinAge(sanitizeAgeInput(value))} placeholder="18" keyboardType="number-pad" maxLength={2} style={styles.input} />
             </View>
             <View style={styles.ageCol}>
-              <Text style={styles.fieldLabel}>Max ålder</Text>
+              <Text style={styles.fieldLabel}>Till</Text>
               <TextInput value={maxAge} onChangeText={(value) => setMaxAge(sanitizeAgeInput(value))} placeholder="99" keyboardType="number-pad" maxLength={2} style={styles.input} />
             </View>
           </View>
