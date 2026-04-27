@@ -987,7 +987,7 @@ export default function ChatDetailScreen() {
     <KeyboardAvoidingView
       style={styles.screen}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={0}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 12}
     >
       <Modal visible={visaRapport} animationType="slide" presentationStyle="pageSheet">
         <View style={styles.modalContainer}>
@@ -1412,7 +1412,7 @@ const styles = StyleSheet.create({
   messagesContent: {
     paddingHorizontal: 16,
     paddingTop: 18,
-    paddingBottom: 20,
+    paddingBottom: Platform.OS === 'ios' ? 20 : 28,
     flexGrow: 1,
     justifyContent: 'flex-end',
   },
@@ -1552,7 +1552,7 @@ const styles = StyleSheet.create({
     borderTopColor: '#DDE2EF',
     paddingHorizontal: 14,
     paddingTop: 12,
-    paddingBottom: Platform.OS === 'ios' ? 20 : 14,
+    paddingBottom: Platform.OS === 'ios' ? 20 : 28,
   },
   recordingBanner: {
     marginBottom: 10,

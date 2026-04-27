@@ -929,7 +929,8 @@ export default function ChatConversationScreen() {
     <WithUScreen>
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 12}
       >
         <View style={styles.header}>
           <View style={styles.headerRow}>
@@ -1138,13 +1139,13 @@ const styles = StyleSheet.create({
   messagesContent: {
     paddingHorizontal: 14,
     paddingTop: 12,
-    paddingBottom: 8,
+    paddingBottom: Platform.OS === 'ios' ? 8 : 18,
   },
   emptyListContent: {
     flexGrow: 1,
     paddingHorizontal: 14,
     paddingTop: 12,
-    paddingBottom: 8,
+    paddingBottom: Platform.OS === 'ios' ? 8 : 18,
   },
 
   dateWrap: {
@@ -1363,7 +1364,7 @@ const styles = StyleSheet.create({
     borderTopColor: '#F0F0F0',
     paddingHorizontal: 12,
     paddingTop: 10,
-    paddingBottom: Platform.OS === 'ios' ? 30 : 14,
+    paddingBottom: Platform.OS === 'ios' ? 30 : 26,
   },
   composerRow: {
     flexDirection: 'row',

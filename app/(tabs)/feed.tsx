@@ -39,7 +39,9 @@ type FeedPost = {
   activity_icon: string | null;
   activity_title: string | null;
   image_path: string | null;
+  image_paths?: string[] | null;
   image_url?: string | null;
+  image_urls?: string[];
   like_count: number | null;
   comment_count: number | null;
   participant_count: number | null;
@@ -56,6 +58,7 @@ type FeedPost = {
 };
 
 const IMAGE_BUCKET = 'post-images';
+const MAX_POST_IMAGES = 4;
 
 const FILTERS: { key: FeedType; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: 'all', label: 'Vänner', icon: 'people-outline' },
@@ -124,6 +127,12 @@ function urlHost(url: string) {
   }
 }
 
+function getPostImagePaths(post: FeedPost) {
+  const paths = Array.isArray(post.image_paths) ? post.image_paths.filter(Boolean) : [];
+  if (paths.length) return paths.slice(0, MAX_POST_IMAGES);
+  return post.image_path ? [post.image_path] : [];
+}
+
 function renderLinkedText(text: string) {
   const parts = text.split(URL_PATTERN);
 
@@ -164,7 +173,7 @@ export default function FeedScreen() {
   const [composerText, setComposerText] = useState('');
   const [activityTitle, setActivityTitle] = useState('');
   const [visibility, setVisibility] = useState<Visibility>('friends');
-  const [selectedImage, setSelectedImage] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [selectedImages, setSelectedImages] = useState<ImagePicker.ImagePickerAsset[]>([]);
   const [commentPost, setCommentPost] = useState<FeedPost | null>(null);
   const [commentText, setCommentText] = useState('');
   const [editingPost, setEditingPost] = useState<FeedPost | null>(null);
@@ -198,7 +207,7 @@ export default function FeedScreen() {
       const { data, error } = await supabase
         .from('posts')
         .select(
-          'id, user_id, type, content, area, activity_icon, activity_title, image_path, like_count, comment_count, participant_count, created_at, profiles:profiles!posts_user_id_fkey(name, city, avatar_url, avatar_emoji, is_bankid_verified)'
+          'id, user_id, type, content, area, activity_icon, activity_title, image_path, image_paths, like_count, comment_count, participant_count, created_at, profiles:profiles!posts_user_id_fkey(name, city, avatar_url, avatar_emoji, is_bankid_verified)'
         )
         .eq('is_active', true)
         .eq('moderation_status', 'visible')
@@ -211,18 +220,23 @@ export default function FeedScreen() {
       const ids = nextPosts.map((post) => post.id);
       const postsWithImages = await Promise.all(
         nextPosts.map(async (post) => {
-          if (!post.image_path) return { ...post, image_url: null };
+          const paths = getPostImagePaths(post);
+          if (!paths.length) return { ...post, image_url: null, image_urls: [] };
 
-          const { data: signedData } = await supabase.storage
-            .from(IMAGE_BUCKET)
-            .createSignedUrl(post.image_path, 60 * 60);
+          const imageUrls = await Promise.all(
+            paths.map(async (path) => {
+              const { data: signedData } = await supabase.storage
+                .from(IMAGE_BUCKET)
+                .createSignedUrl(path, 60 * 60);
 
-          if (signedData?.signedUrl) {
-            return { ...post, image_url: signedData.signedUrl };
-          }
+              if (signedData?.signedUrl) return signedData.signedUrl;
 
-          const { data: publicData } = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(post.image_path);
-          return { ...post, image_url: publicData.publicUrl || null };
+              const { data: publicData } = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path);
+              return publicData.publicUrl || null;
+            })
+          );
+          const urls = imageUrls.filter(Boolean) as string[];
+          return { ...post, image_url: urls[0] ?? null, image_urls: urls };
         })
       );
 
@@ -274,7 +288,7 @@ export default function FeedScreen() {
     setActivityTitle('');
     setComposerType('activity');
     setVisibility('friends');
-    setSelectedImage(null);
+    setSelectedImages([]);
     setComposerOpen(false);
   };
 
@@ -291,30 +305,36 @@ export default function FeedScreen() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       quality: 0.82,
-      allowsEditing: true,
-      aspect: [4, 3],
+      allowsMultipleSelection: true,
+      selectionLimit: MAX_POST_IMAGES,
     });
 
     if (!result.canceled) {
-      setSelectedImage(result.assets[0]);
+      setSelectedImages(result.assets.slice(0, MAX_POST_IMAGES));
       setComposerType('photo');
     }
   };
 
-  const uploadSelectedImage = async () => {
-    if (!selectedImage || !currentUserId) return null;
+  const uploadSelectedImages = async () => {
+    if (!selectedImages.length || !currentUserId) return [];
 
-    const response = await fetch(selectedImage.uri);
-    const blob = await response.blob();
-    const extension = selectedImage.uri.split('.').pop()?.toLowerCase() || 'jpg';
-    const path = `${currentUserId}/${Date.now()}.${extension}`;
-    const { error } = await supabase.storage.from(IMAGE_BUCKET).upload(path, blob, {
-      contentType: selectedImage.mimeType || 'image/jpeg',
-      upsert: false,
-    });
+    const paths = await Promise.all(
+      selectedImages.slice(0, MAX_POST_IMAGES).map(async (image, index) => {
+        const response = await fetch(image.uri);
+        const blob = await response.blob();
+        const extension = image.uri.split('.').pop()?.toLowerCase() || 'jpg';
+        const path = `${currentUserId}/${Date.now()}-${index}.${extension}`;
+        const { error } = await supabase.storage.from(IMAGE_BUCKET).upload(path, blob, {
+          contentType: image.mimeType || 'image/jpeg',
+          upsert: false,
+        });
 
-    if (error) throw error;
-    return path;
+        if (error) throw error;
+        return path;
+      })
+    );
+
+    return paths;
   };
 
   const createPost = async () => {
@@ -324,7 +344,7 @@ export default function FeedScreen() {
 
     const text = composerText.trim();
 
-    if (text.length < 3 && !selectedImage) {
+    if (text.length < 3 && selectedImages.length === 0) {
       Alert.alert('Skriv lite mer', 'Lägg till några ord eller en bild.');
       return;
     }
@@ -342,15 +362,16 @@ export default function FeedScreen() {
     try {
       setSaving(true);
       const meta = TYPE_META[composerType];
-      const imagePath = selectedImage ? await uploadSelectedImage() : null;
+      const imagePaths = selectedImages.length ? await uploadSelectedImages() : [];
       const { error } = await supabase.from('posts').insert({
         user_id: currentUserId,
         type: composerType,
         content: text || activityTitle.trim() || 'Bild',
         activity_icon: meta.icon,
         activity_title: activityTitle.trim() || null,
-        image_path: imagePath,
-        image_status: imagePath ? 'approved' : 'none',
+        image_path: imagePaths[0] ?? null,
+        image_paths: imagePaths,
+        image_status: imagePaths.length ? 'approved' : 'none',
         area: visibility === 'nearby' ? 'Nära dig' : visibility === 'matches' ? 'Matcher' : 'Vänner',
       });
 
@@ -579,7 +600,7 @@ export default function FeedScreen() {
 
   const renderPost = ({ item }: { item: FeedPost }) => {
     const meta = TYPE_META[item.type] || TYPE_META.activity;
-    const imageUrl = item.image_url;
+    const imageUrls = item.image_urls?.length ? item.image_urls : item.image_url ? [item.image_url] : [];
     const linkUrl = firstUrl(item.content);
     const isOwnPost = item.user_id === currentUserId;
 
@@ -603,7 +624,21 @@ export default function FeedScreen() {
           </View>
         </Pressable>
 
-        {imageUrl ? <Image source={{ uri: imageUrl }} style={styles.postImage} /> : null}
+        {imageUrls.length ? (
+          <View style={[styles.postImageGrid, imageUrls.length === 1 && styles.postImageGridSingle]}>
+            {imageUrls.slice(0, MAX_POST_IMAGES).map((url, index) => (
+              <Image
+                key={`${url}-${index}`}
+                source={{ uri: url }}
+                style={[
+                  styles.postGridImage,
+                  imageUrls.length === 1 && styles.postGridImageSingle,
+                  imageUrls.length === 3 && index === 0 && styles.postGridImageWide,
+                ]}
+              />
+            ))}
+          </View>
+        ) : null}
 
         <Text style={styles.postText}>{renderLinkedText(item.content)}</Text>
 
@@ -877,12 +912,22 @@ export default function FeedScreen() {
               />
             )}
 
-            {selectedImage ? (
+            {selectedImages.length ? (
               <View style={styles.previewWrap}>
-                <Image source={{ uri: selectedImage.uri }} style={styles.previewImage} />
-                <Pressable style={styles.removeImageButton} onPress={() => setSelectedImage(null)}>
-                  <Ionicons name="close" size={18} color="#FFFFFF" />
-                </Pressable>
+                <View style={styles.previewGrid}>
+                  {selectedImages.map((image, index) => (
+                    <View key={`${image.uri}-${index}`} style={styles.previewTile}>
+                      <Image source={{ uri: image.uri }} style={styles.previewImage} />
+                      <Pressable
+                        style={styles.removeImageButton}
+                        onPress={() => setSelectedImages((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+                      >
+                        <Ionicons name="close" size={18} color="#FFFFFF" />
+                      </Pressable>
+                    </View>
+                  ))}
+                </View>
+                <Text style={styles.composerHint}>{selectedImages.length}/{MAX_POST_IMAGES} bilder valda</Text>
               </View>
             ) : null}
 
@@ -1150,7 +1195,30 @@ const styles = StyleSheet.create({
   postMeta: { color: '#7A8399', fontSize: 12, fontWeight: '700', marginTop: 2 },
   typeBadge: { borderRadius: 999, paddingHorizontal: 9, paddingVertical: 5 },
   typeBadgeText: { fontSize: 10, fontWeight: '900' },
-  postImage: { width: '100%', height: 220, borderRadius: 18, marginBottom: 12, backgroundColor: '#EEF1F6' },
+  postImageGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginBottom: 12,
+  },
+  postImageGridSingle: {
+    gap: 0,
+  },
+  postGridImage: {
+    width: '49.3%',
+    height: 156,
+    borderRadius: 14,
+    backgroundColor: '#EEF1F6',
+  },
+  postGridImageSingle: {
+    width: '100%',
+    height: 240,
+    borderRadius: 18,
+  },
+  postGridImageWide: {
+    width: '100%',
+    height: 210,
+  },
   postText: { color: '#334155', fontSize: 16, lineHeight: 24, marginBottom: 12 },
   linkText: { color: '#1C5E52', fontWeight: '900', textDecorationLine: 'underline' },
   linkCard: {
@@ -1268,8 +1336,10 @@ const styles = StyleSheet.create({
   visibilitySub: { color: '#7A8399', fontSize: 12, fontWeight: '700', marginTop: 2 },
   visibilitySubActive: { color: '#1C5E52' },
   previewWrap: { marginBottom: 12 },
-  previewImage: { width: '100%', height: 220, borderRadius: 18, backgroundColor: '#EEF1F6' },
-  removeImageButton: { position: 'absolute', top: 10, right: 10, width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(15,30,56,0.78)', alignItems: 'center', justifyContent: 'center' },
+  previewGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  previewTile: { width: '48.6%', position: 'relative' },
+  previewImage: { width: '100%', height: 136, borderRadius: 18, backgroundColor: '#EEF1F6' },
+  removeImageButton: { position: 'absolute', top: 8, right: 8, width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(15,30,56,0.78)', alignItems: 'center', justifyContent: 'center' },
   composerInput: {
     minHeight: 180,
     borderRadius: 18,
