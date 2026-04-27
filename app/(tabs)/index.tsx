@@ -66,6 +66,12 @@ const FILTERS: { key: FilterKey; label: string }[] = [
   { key: 'studera', label: 'Studera' },
 ];
 
+const QUICK_QUESTIONS = [
+  'Vill du prata lite?',
+  'Ska vi ta en kort promenad?',
+  'Vill du hitta på något enkelt?',
+];
+
 function normalize(value: string) {
   return value
     .toLowerCase()
@@ -313,6 +319,31 @@ export default function HittaScreen() {
     }
   };
 
+  const sendQuickQuestion = async (profile: ProfileRow, question: string) => {
+    if (!currentUserId || sending) return;
+
+    try {
+      setSending(profile.id);
+      const { error } = await supabase.from('matches').upsert(
+        {
+          user_id: currentUserId,
+          target_id: profile.id,
+          action: 'like',
+          is_match: false,
+        },
+        { onConflict: 'user_id,target_id,action' }
+      );
+
+      if (error) throw error;
+      setContactedIds((prev) => (prev.includes(profile.id) ? prev : [...prev, profile.id]));
+      Alert.alert('Fråga skickad', `${profile.name || 'Personen'} får din fråga och kan svara om det känns rätt.`);
+    } catch (error: any) {
+      Alert.alert('Kunde inte skicka fråga', error?.message || 'Försök igen om en stund.');
+    } finally {
+      setSending(null);
+    }
+  };
+
   return (
     <WithUScreen>
       <WithUTopBar
@@ -424,8 +455,17 @@ export default function HittaScreen() {
                 const avatar = getAvatarEmoji(profile);
                 const city = profile.city || 'Plats saknas';
                 const firstActivity = profile.activities?.[0] || 'Prata';
+                const quickQuestion = QUICK_QUESTIONS[profile.id.charCodeAt(0) % QUICK_QUESTIONS.length];
                 return (
                   <View key={profile.id} style={styles.profileCard}>
+                    <View style={styles.cardStatusRow}>
+                      <View style={styles.activeNowPill}>
+                        <View style={styles.activeNowDot} />
+                        <Text style={styles.activeNowText}>Aktiv idag</Text>
+                      </View>
+                      <Text style={styles.cardHint}>Trygg kontakt först</Text>
+                    </View>
+
                     <View style={styles.profileTop}>
                       <View style={styles.avatarBubble}>
                         <Text style={styles.avatarText}>{avatar}</Text>
@@ -453,6 +493,15 @@ export default function HittaScreen() {
                         {profile.bio.trim()}
                       </Text>
                     ) : null}
+
+                    <Pressable
+                      style={styles.quickQuestionCard}
+                      onPress={() => sendQuickQuestion(profile, quickQuestion)}
+                      disabled={!!sending}
+                    >
+                      <Ionicons name="chatbubble-ellipses-outline" size={18} color={withuColors.teal} />
+                      <Text style={styles.quickQuestionText}>{quickQuestion}</Text>
+                    </Pressable>
 
                     <View style={styles.activityRow}>
                       {(profile.activities ?? []).slice(0, 4).map((activity) => (
@@ -617,6 +666,19 @@ const styles = StyleSheet.create({
     padding: withuSpacing.lg,
     ...withuShadows.card,
   },
+  cardStatusRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  activeNowPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: withuColors.successBg,
+    borderRadius: withuRadius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  activeNowDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: withuColors.success },
+  activeNowText: { color: withuColors.teal, fontSize: 11, fontWeight: '900' },
+  cardHint: { color: withuColors.muted, fontSize: 11, fontWeight: '800' },
   profileTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   avatarBubble: {
     width: 62,
@@ -642,6 +704,20 @@ const styles = StyleSheet.create({
   },
   matchScoreText: { color: withuColors.coral, fontSize: 10, fontWeight: '900' },
   bioText: { color: withuColors.text, fontSize: 14, lineHeight: 21, marginTop: 14 },
+  quickQuestionCard: {
+    minHeight: 48,
+    borderRadius: withuRadius.md,
+    backgroundColor: withuColors.tealBg,
+    borderWidth: 1,
+    borderColor: 'rgba(28,94,82,0.18)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 14,
+  },
+  quickQuestionText: { flex: 1, color: withuColors.teal, fontSize: 13, fontWeight: '900' },
   activityRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
   activityChip: {
     backgroundColor: withuColors.soft,
