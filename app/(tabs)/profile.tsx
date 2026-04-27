@@ -1,8 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -13,14 +12,16 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  useWindowDimensions,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { supabase } from '../../src/lib/supabase';
 import VolunteerStatusCard from '../../src/components/volunteer/VolunteerStatusCard';
+import { WithUAvatar } from '../../src/components/withu/WithUPrimitives';
 import { checkContentSafety, getContentSafetyAlert } from '../../src/lib/contentSafety';
+
+type ProfileTab = 'profile' | 'friends' | 'settings';
 
 type Category = {
   title: string;
@@ -36,70 +37,80 @@ type ProfileRow = {
   age: number | null;
   bio: string | null;
   avatar_url: string | null;
+  avatar_emoji: string | null;
   min_age: number | null;
   max_age: number | null;
   activities: string[] | null;
   is_bankid_verified: boolean | null;
 };
 
+type MatchRow = {
+  user_id: string;
+  target_id: string;
+  is_match: boolean | null;
+  created_at: string | null;
+};
+
+type FriendProfile = {
+  id: string;
+  name: string | null;
+  age: number | null;
+  city: string | null;
+  bio: string | null;
+  activities: string[] | null;
+  avatar_url: string | null;
+  avatar_emoji: string | null;
+  is_bankid_verified: boolean | null;
+};
+
 const ACTIVITY_CATEGORIES: Category[] = [
   {
-    title: 'Fika & Samtal',
-    emoji: '☕️',
+    title: 'Fika & samtal',
+    emoji: '☕',
     items: ['Kafébesök', 'Lunch', 'Middag', 'Bara prata', 'Promenad och prat', 'Picknick'],
   },
   {
-    title: 'Gaming & Fritid',
+    title: 'Gaming & fritid',
     emoji: '🎮',
     items: ['Datorspel', 'Brädspel', 'Rollspel', 'Escape room', 'Kortspel', 'Sällskapsspel'],
   },
   {
-    title: 'Studier & Lärande',
+    title: 'Studier & lärande',
     emoji: '📚',
     items: ['Läxhjälp', 'Språkbyte', 'Pluggsällskap', 'Studiecirkel', 'Bokclub', 'Debatt'],
   },
   {
-    title: 'Träning & Sport',
+    title: 'Träning & sport',
     emoji: '💪',
-    items: ['Löpning', 'Gym', 'Yoga', 'Padel', 'Cykling', 'Simning', 'Fotboll', 'Vandring', 'Klättring', 'Tennis'],
+    items: ['Löpning', 'Gym', 'Yoga', 'Padel', 'Cykling', 'Simning', 'Fotboll', 'Vandring'],
   },
   {
-    title: 'Musik & Kultur',
+    title: 'Musik & kultur',
     emoji: '🎵',
     items: ['Konserter', 'Replokal', 'Teater', 'Bio', 'Museum', 'Konstutställning', 'Danslektion'],
   },
   {
-    title: 'Kreativitet',
-    emoji: '🎨',
-    items: ['Foto', 'Konst & Målning', 'Skrivande', 'Design', 'Hantverk', 'Keramik', 'Sy & sticka'],
-  },
-  {
-    title: 'Familj & Föräldrar',
-    emoji: '👨‍👩‍👧',
-    items: ['Lekpark', 'Föräldraträff', 'Barnaktiviteter', 'Sandlådan', 'Babygrupp'],
-  },
-  {
-    title: 'Språk & Integration',
-    emoji: '🌍',
-    items: ['Kulturutbyte', 'Språkcafé', 'Integration', 'Internationell matlagning', 'Konversationsträning'],
-  },
-  {
-    title: 'Senior & Hembesök',
-    emoji: '🧓',
-    items: ['Sällskap hemma', 'Promenadkompis', 'Berättarstund', 'Kortspel hemma', 'Hjälp med teknik'],
-  },
-  {
-    title: 'Stöd & Samtal',
+    title: 'Stöd & samtal',
     emoji: '💬',
     items: ['Telefonsamtal', 'Videosamtal', 'Anonymt stöd', 'Krisstöd', 'Lyssna och prata'],
   },
   {
-    title: 'Natur & Friluftsliv',
+    title: 'Språk & integration',
+    emoji: '🌍',
+    items: ['Kulturutbyte', 'Språkcafé', 'Integration', 'Internationell matlagning', 'Konversationsträning'],
+  },
+  {
+    title: 'Senior & hembesök',
+    emoji: '🧓',
+    items: ['Sällskap hemma', 'Promenadkompis', 'Berättarstund', 'Kortspel hemma', 'Hjälp med teknik'],
+  },
+  {
+    title: 'Natur & friluftsliv',
     emoji: '🌿',
     items: ['Naturpromenader', 'Fågelskådning', 'Bärplockning', 'Fiske', 'Camping', 'Trädgård'],
   },
   {
-    title: 'Mat & Dryck',
+    title: 'Mat & dryck',
     emoji: '🍳',
     items: ['Laga mat tillsammans', 'Baka', 'Vinprovning', 'Matmarknad', 'Provlaga recept'],
   },
@@ -110,19 +121,28 @@ const DEFAULT_MIN_AGE = '18';
 const DEFAULT_MAX_AGE = '99';
 const DELETE_CONFIRM_TEXT = 'TA BORT';
 
+function makeConversationKey(a: string, b: string) {
+  return [a, b].sort().join('__');
+}
+
+function initialsFromName(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '🙂';
+  return parts
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('');
+}
+
 export default function ProfileScreen() {
   const router = useRouter();
-  const { width } = useWindowDimensions();
-
-  const isWide = width >= 900;
-  const isTablet = width >= 700;
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [activeTab, setActiveTab] = useState<ProfileTab>('profile');
   const [deletingAccount, setDeletingAccount] = useState(false);
-
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
   const [deleteConfirmValue, setDeleteConfirmValue] = useState('');
 
@@ -137,36 +157,67 @@ export default function ProfileScreen() {
   const [maxAge, setMaxAge] = useState(DEFAULT_MAX_AGE);
   const [selectedActivities, setSelectedActivities] = useState<string[]>([]);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-
+  const [avatarEmoji, setAvatarEmoji] = useState('🙂');
   const [isBankIdVerified, setIsBankIdVerified] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [friends, setFriends] = useState<FriendProfile[]>([]);
 
-  const completionPercent = useMemo(() => {
+  const canConfirmDelete =
+    deleteConfirmValue.trim().toUpperCase() === DELETE_CONFIRM_TEXT && !deletingAccount;
+
+  const profileCompletion = useMemo(() => {
     const checks = [
       name.trim().length > 1,
       city.trim().length > 1,
       Number(age) > 0,
       bio.trim().length > 10,
-      Number(minAge) > 0,
-      Number(maxAge) >= Number(minAge),
       selectedActivities.length > 0,
       !!avatarUrl,
     ];
-    const completed = checks.filter(Boolean).length;
-    return Math.round((completed / checks.length) * 100);
-  }, [name, city, age, bio, minAge, maxAge, selectedActivities, avatarUrl]);
 
-  const visibleActivities = selectedActivities.slice(0, isTablet ? 12 : 8);
-  const hiddenActivities = Math.max(0, selectedActivities.length - visibleActivities.length);
+    return Math.round((checks.filter(Boolean).length / checks.length) * 100);
+  }, [name, city, age, bio, selectedActivities, avatarUrl]);
 
-  const canConfirmDelete =
-    deleteConfirmValue.trim().toUpperCase() === DELETE_CONFIRM_TEXT && !deletingAccount;
+  const publicName = name.trim() || 'Din profil';
+  const publicPlace = [city.trim(), country.trim()].filter(Boolean).join(', ') || 'Lägg till stad';
+  const visibleActivities = selectedActivities.slice(0, 10);
 
-  useEffect(() => {
-    loadProfile();
+  const loadFriends = useCallback(async (userId: string) => {
+    const [{ data: outgoing, error: outgoingError }, { data: incoming, error: incomingError }] =
+      await Promise.all([
+        supabase
+          .from('matches')
+          .select('user_id, target_id, is_match, created_at')
+          .eq('user_id', userId)
+          .eq('is_match', true),
+        supabase
+          .from('matches')
+          .select('user_id, target_id, is_match, created_at')
+          .eq('target_id', userId)
+          .eq('is_match', true),
+      ]);
+
+    if (outgoingError) throw outgoingError;
+    if (incomingError) throw incomingError;
+
+    const rows = [...((outgoing ?? []) as MatchRow[]), ...((incoming ?? []) as MatchRow[])];
+    const friendIds = [...new Set(rows.map((row) => (row.user_id === userId ? row.target_id : row.user_id)))];
+
+    if (!friendIds.length) {
+      setFriends([]);
+      return;
+    }
+
+    const { data: profiles, error } = await supabase
+      .from('profiles')
+      .select('id, name, age, city, bio, activities, avatar_url, avatar_emoji, is_bankid_verified')
+      .in('id', friendIds);
+
+    if (error) throw error;
+    setFriends((profiles ?? []) as FriendProfile[]);
   }, []);
 
-  async function loadProfile() {
+  const loadProfile = useCallback(async () => {
     try {
       setLoading(true);
 
@@ -186,23 +237,17 @@ export default function ProfileScreen() {
           supabase
             .from('profiles')
             .select(
-              'id, name, city, country, age, bio, avatar_url, min_age, max_age, activities, is_bankid_verified'
+              'id, name, city, country, age, bio, avatar_url, avatar_emoji, min_age, max_age, activities, is_bankid_verified'
             )
             .eq('id', authData.user.id)
-            .single(),
+            .maybeSingle(),
           supabase.from('admins').select('user_id').eq('user_id', authData.user.id).maybeSingle(),
         ]);
 
-      if (profileError && profileError.code !== 'PGRST116') {
-        throw profileError;
-      }
-
-      if (adminError) {
-        throw adminError;
-      }
+      if (profileError) throw profileError;
+      if (adminError) throw adminError;
 
       const profile = profileData as ProfileRow | null;
-
       setIsAdmin(!!adminData);
 
       if (profile) {
@@ -212,25 +257,28 @@ export default function ProfileScreen() {
         setAge(profile.age ? String(profile.age) : '');
         setBio(profile.bio ?? '');
         setAvatarUrl(profile.avatar_url ?? null);
+        setAvatarEmoji(profile.avatar_emoji ?? '🙂');
         setMinAge(profile.min_age ? String(profile.min_age) : DEFAULT_MIN_AGE);
         setMaxAge(profile.max_age ? String(profile.max_age) : DEFAULT_MAX_AGE);
         setSelectedActivities(profile.activities ?? []);
         setIsBankIdVerified(!!profile.is_bankid_verified);
-      } else {
-        setIsBankIdVerified(false);
       }
+
+      await loadFriends(authData.user.id);
     } catch (error: any) {
-      Alert.alert('Fel', error?.message ?? 'Kunde inte ladda profilen.');
+      Alert.alert('Kunde inte ladda profil', error?.message ?? 'Försök igen om en stund.');
     } finally {
       setLoading(false);
     }
-  }
+  }, [loadFriends, router]);
+
+  useEffect(() => {
+    loadProfile();
+  }, [loadProfile]);
 
   function toggleActivity(activity: string) {
     setSelectedActivities((current) => {
-      const exists = current.includes(activity);
-
-      if (exists) {
+      if (current.includes(activity)) {
         return current.filter((item) => item !== activity);
       }
 
@@ -255,10 +303,7 @@ export default function ProfileScreen() {
 
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
-        Alert.alert(
-          'Tillåt bilder',
-          'WithU behöver tillgång till dina bilder för att kunna lägga till en profilbild.'
-        );
+        Alert.alert('Tillåt bilder', 'WithU behöver tillgång till dina bilder för att lägga till profilbild.');
         return;
       }
 
@@ -274,7 +319,6 @@ export default function ProfileScreen() {
       const asset = result.assets[0];
       const fileExt = asset.fileName?.split('.').pop()?.toLowerCase() || 'jpg';
       const filePath = `${authData.user.id}/avatar-${Date.now()}.${fileExt}`;
-
       const response = await fetch(asset.uri);
       const arrayBuffer = await response.arrayBuffer();
 
@@ -288,50 +332,31 @@ export default function ProfileScreen() {
       if (uploadError) throw uploadError;
 
       const { data: publicUrlData } = supabase.storage.from('profile-images').getPublicUrl(filePath);
-
       const publicUrl = publicUrlData.publicUrl;
-      const timestamp = new Date().toISOString();
 
-      const { data: updatedRow, error: updateError } = await supabase
-        .from('profiles')
-        .update({
-          avatar_url: publicUrl,
-          updated_at: timestamp,
-        })
-        .eq('id', authData.user.id)
-        .select('id')
-        .maybeSingle();
-
-      if (updateError) throw updateError;
-
-      if (!updatedRow) {
-        if (!name.trim()) {
-          throw new Error('Fyll i namn och spara profil först innan du lägger till bild.');
-        }
-
-        const { error: insertError } = await supabase.from('profiles').insert({
+      const { error: updateError } = await supabase.from('profiles').upsert(
+        {
           id: authData.user.id,
-          name: name.trim(),
+          name: name.trim() || 'Ny användare',
           city: city.trim() || null,
+          country: country.trim() || 'Sverige',
           age: age ? Number(age) : null,
           bio: bio.trim() || null,
           avatar_url: publicUrl,
           min_age: minAge ? Number(minAge) : 18,
           max_age: maxAge ? Number(maxAge) : 99,
           activities: selectedActivities,
-          updated_at: timestamp,
-        });
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'id' }
+      );
 
-        if (insertError) throw insertError;
-      }
+      if (updateError) throw updateError;
 
       setAvatarUrl(publicUrl);
       Alert.alert('Klart', 'Profilbilden är uppladdad.');
     } catch (error: any) {
-      Alert.alert(
-        'Kunde inte ladda upp bild',
-        error?.message ?? 'Något gick fel. Försök igen.'
-      );
+      Alert.alert('Kunde inte ladda upp bild', error?.message ?? 'Något gick fel. Försök igen.');
     } finally {
       setUploadingAvatar(false);
     }
@@ -347,14 +372,10 @@ export default function ProfileScreen() {
 
       const { error } = await supabase
         .from('profiles')
-        .update({
-          avatar_url: null,
-          updated_at: new Date().toISOString(),
-        })
+        .update({ avatar_url: null, updated_at: new Date().toISOString() })
         .eq('id', authData.user.id);
 
       if (error) throw error;
-
       setAvatarUrl(null);
     } catch (error: any) {
       Alert.alert('Kunde inte ta bort bild', error?.message ?? 'Något gick fel. Försök igen.');
@@ -374,11 +395,6 @@ export default function ProfileScreen() {
 
       if (!city.trim()) {
         Alert.alert('Stad saknas', 'Fyll i vilken stad du bor i.');
-        return;
-      }
-
-      if (!country.trim()) {
-        Alert.alert('Land saknas', 'Fyll i vilket land du bor i.');
         return;
       }
 
@@ -407,28 +423,29 @@ export default function ProfileScreen() {
 
       setSaving(true);
 
-      const payload = {
-        id: authData.user.id,
-        name: name.trim(),
-        city: city.trim(),
-        country: country.trim(),
-        age: ageNumber,
-        bio: bio.trim(),
-        avatar_url: avatarUrl,
-        min_age: minAgeNumber,
-        max_age: maxAgeNumber,
-        activities: selectedActivities,
-        is_profile_complete: true,
-        updated_at: new Date().toISOString(),
-      };
-
-      const { error } = await supabase.from('profiles').upsert(payload, { onConflict: 'id' });
+      const { error } = await supabase.from('profiles').upsert(
+        {
+          id: authData.user.id,
+          name: name.trim(),
+          city: city.trim(),
+          country: country.trim() || 'Sverige',
+          age: ageNumber,
+          bio: bio.trim(),
+          avatar_url: avatarUrl,
+          min_age: minAgeNumber,
+          max_age: maxAgeNumber,
+          activities: selectedActivities,
+          is_profile_complete: true,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'id' }
+      );
 
       if (error) throw error;
 
-      Alert.alert('Klart', 'Profilen är sparad.');
       setIsEditing(false);
       await loadProfile();
+      Alert.alert('Klart', 'Profilen är sparad.');
     } catch (error: any) {
       Alert.alert('Kunde inte spara', error?.message ?? 'Något gick fel.');
     } finally {
@@ -450,24 +467,6 @@ export default function ProfileScreen() {
     ]);
   }
 
-  async function switchAccount() {
-    Alert.alert('Byt konto', 'Du kommer att loggas ut först.', [
-      { text: 'Avbryt', style: 'cancel' },
-      {
-        text: 'Fortsätt',
-        onPress: async () => {
-          await supabase.auth.signOut({ scope: 'local' });
-          router.replace('/login');
-        },
-      },
-    ]);
-  }
-
-  function openDeleteAccountModal() {
-    setDeleteConfirmValue('');
-    setDeleteModalVisible(true);
-  }
-
   async function deleteAccount() {
     if (!canConfirmDelete || deletingAccount) return;
 
@@ -485,46 +484,370 @@ export default function ProfileScreen() {
       }
 
       const { error } = await supabase.functions.invoke('delete-account', {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: {
-          confirmText: DELETE_CONFIRM_TEXT,
-        },
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        body: { confirmText: DELETE_CONFIRM_TEXT },
       });
 
-      if (error) {
-        let message = error.message || 'Något gick fel.';
-        try {
-          const details = await (error as any)?.context?.json?.();
-          if (details?.error) {
-            message = details.error;
-          }
-        } catch {
-          // ignore
-        }
-        throw new Error(message);
-      }
+      if (error) throw error;
 
       await supabase.auth.signOut({ scope: 'local' });
-
       setDeleteModalVisible(false);
-      setDeleteConfirmValue('');
-
-      Alert.alert('Kontot är borttaget', 'Ditt konto har raderats.', [
-        {
-          text: 'OK',
-          onPress: () => router.replace('/login'),
-        },
-      ]);
+      router.replace('/login');
     } catch (error: any) {
-      Alert.alert(
-        'Kunde inte ta bort konto',
-        error?.message ?? 'Något gick fel. Försök igen.'
-      );
+      Alert.alert('Kunde inte ta bort konto', error?.message ?? 'Något gick fel. Försök igen.');
     } finally {
       setDeletingAccount(false);
     }
+  }
+
+  function renderProfileView() {
+    return (
+      <>
+        <View style={styles.heroCard}>
+          <TouchableOpacity activeOpacity={0.88} onPress={pickAndUploadAvatar} style={styles.avatarWrap}>
+            <WithUAvatar emoji={avatarEmoji || initialsFromName(publicName)} imageUrl={avatarUrl} size={106} online />
+            <View style={styles.cameraBadge}>
+              {uploadingAvatar ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Ionicons name="camera" size={18} color="#FFFFFF" />
+              )}
+            </View>
+          </TouchableOpacity>
+
+          <View style={styles.heroText}>
+            <Text style={styles.eyebrow}>MIN PROFIL</Text>
+            <Text style={styles.profileName}>{publicName}</Text>
+            <Text style={styles.profileMeta}>
+              {[age ? `${age} år` : null, publicPlace].filter(Boolean).join(' · ')}
+            </Text>
+          </View>
+
+          <View style={styles.badgeRow}>
+            <View style={styles.badge}>
+              <Ionicons name="checkmark-circle" size={15} color="#1C5E52" />
+              <Text style={styles.badgeText}>{profileCompletion}% klar</Text>
+            </View>
+            <View style={styles.badge}>
+              <Ionicons
+                name={isBankIdVerified ? 'shield-checkmark' : 'shield-outline'}
+                size={15}
+                color={isBankIdVerified ? '#1C5E52' : '#7A8499'}
+              />
+              <Text style={styles.badgeText}>{isBankIdVerified ? 'Verifierad' : 'Ej verifierad'}</Text>
+            </View>
+          </View>
+
+          <View style={styles.heroActions}>
+            <TouchableOpacity style={styles.primaryButton} onPress={() => setIsEditing(true)}>
+              <Text style={styles.primaryButtonText}>Redigera profil</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.secondaryButton} onPress={() => router.push('/volunteers')}>
+              <Text style={styles.secondaryButtonText}>Volontärprogram</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.statsRow}>
+          <View style={styles.statCard}>
+            <Text style={styles.statValue}>{friends.length}</Text>
+            <Text style={styles.statLabel}>Vänner</Text>
+          </View>
+          <View style={styles.statCard}>
+            <Text style={styles.statValue}>{selectedActivities.length}</Text>
+            <Text style={styles.statLabel}>Aktiviteter</Text>
+          </View>
+          <View style={styles.statCard}>
+            <Text style={styles.statValue}>{minAge}–{maxAge}</Text>
+            <Text style={styles.statLabel}>Matchning</Text>
+          </View>
+        </View>
+
+        <VolunteerStatusCard userId={currentUserId} />
+
+        <View style={styles.card}>
+          <View style={styles.sectionHeader}>
+            <View>
+              <Text style={styles.sectionLabel}>OM MIG</Text>
+              <Text style={styles.sectionTitle}>Så ser andra dig</Text>
+            </View>
+            <Pressable onPress={() => setIsEditing(true)}>
+              <Text style={styles.sectionAction}>Ändra</Text>
+            </Pressable>
+          </View>
+          <Text style={styles.bodyText}>
+            {bio || 'Skriv några rader om dig själv. Det gör det lättare för andra att våga säga hej.'}
+          </Text>
+        </View>
+
+        <View style={styles.card}>
+          <View style={styles.sectionHeader}>
+            <View>
+              <Text style={styles.sectionLabel}>AKTIVITETER</Text>
+              <Text style={styles.sectionTitle}>Det du vill göra</Text>
+            </View>
+            <Pressable onPress={() => setIsEditing(true)}>
+              <Text style={styles.sectionAction}>Välj</Text>
+            </Pressable>
+          </View>
+          <View style={styles.chipsWrap}>
+            {visibleActivities.length ? (
+              visibleActivities.map((item) => (
+                <View key={item} style={styles.chipActive}>
+                  <Text style={styles.chipActiveText}>{item}</Text>
+                </View>
+              ))
+            ) : (
+              <Text style={styles.mutedText}>Inga aktiviteter valda ännu.</Text>
+            )}
+          </View>
+        </View>
+
+        <View style={styles.card}>
+          <View style={styles.sectionHeader}>
+            <View>
+              <Text style={styles.sectionLabel}>VÄNNER</Text>
+              <Text style={styles.sectionTitle}>Personer du matchat med</Text>
+            </View>
+            <Pressable onPress={() => setActiveTab('friends')}>
+              <Text style={styles.sectionAction}>Se alla</Text>
+            </Pressable>
+          </View>
+
+          {friends.length ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.friendStrip}>
+              {friends.slice(0, 8).map((friend) => (
+                <Pressable
+                  key={friend.id}
+                  style={styles.friendMini}
+                  onPress={() => router.push(`/chat/${makeConversationKey(currentUserId, friend.id)}`)}
+                >
+                  <WithUAvatar
+                    emoji={friend.avatar_emoji || initialsFromName(friend.name || '')}
+                    imageUrl={friend.avatar_url}
+                    size={56}
+                  />
+                  <Text numberOfLines={1} style={styles.friendMiniName}>
+                    {friend.name || 'Vän'}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          ) : (
+            <Text style={styles.mutedText}>När du matchar med någon syns personen här.</Text>
+          )}
+        </View>
+      </>
+    );
+  }
+
+  function renderFriendsView() {
+    return (
+      <View style={styles.card}>
+        <Text style={styles.sectionLabel}>DINA VÄNNER</Text>
+        <Text style={styles.sectionTitle}>Matchningar som kan chatta med dig</Text>
+        <Text style={styles.bodyText}>
+          Här samlas personer där båda har valt att prata. Flödet kan sedan visas bara för dessa vänner.
+        </Text>
+
+        <View style={styles.friendList}>
+          {friends.length ? (
+            friends.map((friend) => (
+              <Pressable
+                key={friend.id}
+                style={styles.friendRow}
+                onPress={() => router.push(`/chat/${makeConversationKey(currentUserId, friend.id)}`)}
+              >
+                <WithUAvatar
+                  emoji={friend.avatar_emoji || initialsFromName(friend.name || '')}
+                  imageUrl={friend.avatar_url}
+                  size={54}
+                />
+                <View style={styles.friendInfo}>
+                  <Text style={styles.friendName}>
+                    {friend.name || 'Vän'}{friend.age ? `, ${friend.age}` : ''}
+                  </Text>
+                  <Text style={styles.friendMeta}>{friend.city || 'Ingen stad'} · {friend.activities?.[0] || 'Prata'}</Text>
+                </View>
+                <Ionicons name="chatbubble-ellipses-outline" size={22} color="#1C5E52" />
+              </Pressable>
+            ))
+          ) : (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyIcon}>💙</Text>
+              <Text style={styles.emptyTitle}>Inga vänner ännu</Text>
+              <Text style={styles.emptyText}>Gå till Upptäck och tryck “Vill prata” på personer du vill lära känna.</Text>
+              <TouchableOpacity style={styles.primaryButton} onPress={() => router.push('/')}>
+                <Text style={styles.primaryButtonText}>Öppna Upptäck</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      </View>
+    );
+  }
+
+  function renderSettingsView() {
+    return (
+      <>
+        <View style={styles.card}>
+          <Text style={styles.sectionLabel}>KONTO</Text>
+          <Text style={styles.sectionTitle}>Inloggning och säkerhet</Text>
+          {!!email && <Text style={styles.bodyText}>{email}</Text>}
+
+          <View style={styles.settingsList}>
+            <Pressable style={styles.settingRow} onPress={() => setIsEditing(true)}>
+              <Ionicons name="person-outline" size={22} color="#1C5E52" />
+              <View style={styles.settingTextWrap}>
+                <Text style={styles.settingTitle}>Redigera profil</Text>
+                <Text style={styles.settingSub}>Namn, stad, bio, profilbild och aktiviteter</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#9AA4B8" />
+            </Pressable>
+
+            <Pressable style={styles.settingRow} onPress={() => router.push('/volunteers')}>
+              <Ionicons name="heart-outline" size={22} color="#E05C4B" />
+              <View style={styles.settingTextWrap}>
+                <Text style={styles.settingTitle}>Volontärprogram</Text>
+                <Text style={styles.settingSub}>Ansök, visa status eller hitta stödpersoner</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#9AA4B8" />
+            </Pressable>
+
+            {isAdmin ? (
+              <Pressable style={styles.settingRow} onPress={() => router.push('/admin/reports')}>
+                <Ionicons name="shield-checkmark-outline" size={22} color="#8F2D0A" />
+                <View style={styles.settingTextWrap}>
+                  <Text style={styles.settingTitle}>Admin och rapporter</Text>
+                  <Text style={styles.settingSub}>Hantera rapporter, blockeringar och trygghet</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#9AA4B8" />
+              </Pressable>
+            ) : null}
+
+            <Pressable style={styles.settingRow} onPress={removeAvatar}>
+              <Ionicons name="image-outline" size={22} color="#617092" />
+              <View style={styles.settingTextWrap}>
+                <Text style={styles.settingTitle}>Ta bort profilbild</Text>
+                <Text style={styles.settingSub}>Du kan lägga upp en ny bild senare</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#9AA4B8" />
+            </Pressable>
+          </View>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.sectionLabel}>TRYGGHET</Text>
+          <Text style={styles.sectionTitle}>Synlighet och konto</Text>
+          <Text style={styles.bodyText}>
+            Din exakta plats visas inte i profilen. Personer ser stad, aktiviteter och profilbild om du själv lägger upp en.
+          </Text>
+          <View style={styles.accountActions}>
+            <TouchableOpacity style={styles.neutralButton} onPress={logout}>
+              <Text style={styles.neutralButtonText}>Logga ut</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.dangerButton}
+              onPress={() => {
+                setDeleteConfirmValue('');
+                setDeleteModalVisible(true);
+              }}
+            >
+              <Text style={styles.dangerButtonText}>Radera konto</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </>
+    );
+  }
+
+  function renderEditView() {
+    return (
+      <>
+        <View style={styles.editHeader}>
+          <Pressable style={styles.roundIconButton} onPress={() => setIsEditing(false)}>
+            <Ionicons name="close" size={24} color="#20325E" />
+          </Pressable>
+          <Text style={styles.editTitle}>Redigera profil</Text>
+          <Pressable style={styles.savePill} onPress={saveProfile} disabled={saving}>
+            {saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.savePillText}>Spara</Text>}
+          </Pressable>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.sectionLabel}>GRUNDUPPGIFTER</Text>
+          <Text style={styles.fieldLabel}>Namn</Text>
+          <TextInput value={name} onChangeText={setName} placeholder="Ditt namn" placeholderTextColor="#9AA6C1" style={styles.input} />
+
+          <Text style={styles.fieldLabel}>Stad</Text>
+          <TextInput value={city} onChangeText={setCity} placeholder="Till exempel Stockholm" placeholderTextColor="#9AA6C1" style={styles.input} />
+
+          <Text style={styles.fieldLabel}>Land</Text>
+          <TextInput value={country} onChangeText={setCountry} placeholder="Sverige" placeholderTextColor="#9AA6C1" style={styles.input} />
+
+          <Text style={styles.fieldLabel}>Ålder</Text>
+          <TextInput value={age} onChangeText={setAge} placeholder="Din ålder" placeholderTextColor="#9AA6C1" keyboardType="number-pad" style={styles.input} />
+
+          <Text style={styles.fieldLabel}>Om mig</Text>
+          <TextInput
+            value={bio}
+            onChangeText={setBio}
+            placeholder="Skriv kort om dig själv"
+            placeholderTextColor="#9AA6C1"
+            multiline
+            textAlignVertical="top"
+            style={[styles.input, styles.textArea]}
+          />
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.sectionLabel}>MATCHNING</Text>
+          <Text style={styles.sectionTitle}>Åldersfilter</Text>
+          <View style={styles.ageRow}>
+            <View style={styles.ageCol}>
+              <Text style={styles.fieldLabel}>Min ålder</Text>
+              <TextInput value={minAge} onChangeText={setMinAge} placeholder="18" keyboardType="number-pad" style={styles.input} />
+            </View>
+            <View style={styles.ageCol}>
+              <Text style={styles.fieldLabel}>Max ålder</Text>
+              <TextInput value={maxAge} onChangeText={setMaxAge} placeholder="99" keyboardType="number-pad" style={styles.input} />
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.card}>
+          <View style={styles.sectionHeader}>
+            <View>
+              <Text style={styles.sectionLabel}>AKTIVITETER</Text>
+              <Text style={styles.sectionTitle}>Vad vill du göra?</Text>
+            </View>
+            <View style={styles.counterBadge}>
+              <Text style={styles.counterBadgeText}>{selectedActivities.length}/{MAX_ACTIVITIES}</Text>
+            </View>
+          </View>
+
+          {ACTIVITY_CATEGORIES.map((category) => (
+            <View key={category.title} style={styles.categoryBlock}>
+              <Text style={styles.categoryTitle}>{category.emoji} {category.title}</Text>
+              <View style={styles.chipsWrap}>
+                {category.items.map((item) => {
+                  const active = selectedActivities.includes(item);
+                  return (
+                    <Pressable
+                      key={`${category.title}-${item}`}
+                      onPress={() => toggleActivity(item)}
+                      style={[styles.choiceChip, active && styles.choiceChipActive]}
+                    >
+                      <Text style={[styles.choiceChipText, active && styles.choiceChipTextActive]}>{item}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          ))}
+        </View>
+      </>
+    );
   }
 
   if (loading) {
@@ -540,7 +863,7 @@ export default function ProfileScreen() {
     <>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 84 : 0}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
         style={styles.screen}
       >
         <ScrollView
@@ -549,397 +872,40 @@ export default function ProfileScreen() {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
         >
-          <View style={[styles.pageWrap, isWide && styles.pageWrapWide]}>
           <View style={styles.pageHeader}>
             <Text style={styles.pageTitle}>Profil</Text>
-            <Text style={styles.pageSubtitle}>Din profil och hur andra ser dig</Text>
-          </View>
-
-          <View style={styles.heroCard}>
-            <View
-              style={[
-                styles.heroTop,
-                {
-                  flexDirection: isTablet ? 'row' : 'column',
-                  alignItems: 'center',
-                },
-              ]}
-            >
-              <TouchableOpacity
-                activeOpacity={0.9}
-                onPress={pickAndUploadAvatar}
-                style={[styles.avatarButton, isTablet && { marginBottom: 0, marginRight: 20 }]}
-              >
-                {avatarUrl ? (
-                  <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
-                ) : (
-                  <View style={styles.avatarFallback}>
-                    <Ionicons name="person" size={56} color="#617092" />
-                  </View>
-                )}
-
-                <View style={styles.cameraBadge}>
-                  {uploadingAvatar ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                  ) : (
-                    <Ionicons name="camera" size={18} color="#FFFFFF" />
-                  )}
-                </View>
-              </TouchableOpacity>
-
-              <View style={[styles.heroTextWrap, isTablet && { alignItems: 'flex-start' }]}>
-                <Text style={styles.heroEyebrow}>MIN PROFIL</Text>
-                <Text style={styles.profileName}>{name || 'Ditt namn'}</Text>
-                <Text style={styles.profileMeta}>
-                  {[city || 'Din plats', country || null, age ? `${age} år` : null]
-                    .filter(Boolean)
-                    .join(' • ')}
-                </Text>
-
-                <View style={styles.heroPillsRow}>
-                  <View style={styles.heroPill}>
-                    <Ionicons name="checkmark-circle" size={15} color="#1C5E52" />
-                    <Text style={styles.heroPillText}>{completionPercent}% profil klar</Text>
-                  </View>
-
-                  <View style={styles.heroPill}>
-                    <Ionicons name="sparkles-outline" size={15} color="#20325E" />
-                    <Text style={styles.heroPillText}>
-                      {selectedActivities.length}/{MAX_ACTIVITIES} aktiviteter
-                    </Text>
-                  </View>
-
-                  <View style={styles.heroPill}>
-                    <Ionicons
-                      name={isBankIdVerified ? 'shield-checkmark' : 'shield-outline'}
-                      size={15}
-                      color={isBankIdVerified ? '#1C5E52' : '#8A97B8'}
-                    />
-                    <Text style={styles.heroPillText}>
-                      {isBankIdVerified ? 'BankID verifierad' : 'Ingen BankID ännu'}
-                    </Text>
-                  </View>
-                </View>
-
-                {!!email && <Text style={styles.emailText}>{email}</Text>}
-              </View>
-            </View>
-
-            <View style={[styles.heroActions, { flexDirection: isTablet ? 'row' : 'column' }]}>
-              <TouchableOpacity
-                style={[styles.primaryButton, isTablet && styles.heroActionHalf]}
-                onPress={() => setIsEditing((v) => !v)}
-              >
-                <Text style={styles.primaryButtonText}>
-                  {isEditing ? 'Stäng redigering' : 'Redigera profil'}
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.secondaryButtonStrong, isTablet && styles.heroActionHalf]}
-                onPress={pickAndUploadAvatar}
-              >
-                <Text style={styles.secondaryButtonStrongText}>
-                  {avatarUrl ? 'Byt bild' : 'Lägg till bild'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {avatarUrl ? (
-              <TouchableOpacity onPress={removeAvatar}>
-                <Text style={styles.removeAvatarText}>Ta bort profilbild</Text>
-              </TouchableOpacity>
-            ) : null}
-          </View>
-
-          {currentUserId ? <VolunteerStatusCard userId={currentUserId} /> : null}
-
-          <View style={styles.statsRow}>
-            <View style={styles.statCard}>
-              <Text style={styles.statValue}>
-                {minAge}–{maxAge}
-              </Text>
-              <Text style={styles.statLabel}>Matchning</Text>
-            </View>
-
-            <View style={styles.statCard}>
-              <Text style={styles.statValue}>{selectedActivities.length}</Text>
-              <Text style={styles.statLabel}>Valda</Text>
-            </View>
-
-            <View style={[styles.statCard, styles.statCardLast]}>
-              <Text style={styles.statValue}>{avatarUrl ? 'Ja' : 'Nej'}</Text>
-              <Text style={styles.statLabel}>Profilbild</Text>
-            </View>
+            <Text style={styles.pageSubtitle}>Din plats, dina vänner och hur andra ser dig.</Text>
           </View>
 
           {!isEditing ? (
-            <>
-              <View style={styles.card}>
-                <Text style={styles.sectionEyebrow}>VERIFIERING</Text>
-                <Text style={styles.sectionTitle}>BankID-status</Text>
-                <Text style={styles.bodyText}>
-                  {isBankIdVerified
-                    ? 'Din profil är BankID-verifierad och du kan använda funktioner som kräver verifiering.'
-                    : 'Din profil är inte BankID-verifierad ännu. Volontäransökan kräver BankID-verifiering.'}
-                </Text>
-              </View>
-
-              <View style={styles.card}>
-                <Text style={styles.sectionEyebrow}>OM MIG</Text>
-                <Text style={styles.sectionTitle}>Det här ser andra</Text>
-                <Text style={styles.bodyText}>
-                  {bio ||
-                    'Skriv något kort om dig själv så att andra får en bättre känsla av vem du är.'}
-                </Text>
-              </View>
-
-              <View style={styles.card}>
-                <Text style={styles.sectionEyebrow}>MATCHNING</Text>
-                <Text style={styles.sectionTitle}>Jag vill matcha med</Text>
-                <Text style={styles.matchingText}>
-                  {minAge}–{maxAge} år
-                </Text>
-              </View>
-
-              <View style={styles.card}>
-                <Text style={styles.sectionEyebrow}>INTRESSEN</Text>
-                <Text style={styles.sectionTitle}>Valda aktiviteter</Text>
-
-                <View style={styles.chipsWrap}>
-                  {visibleActivities.length ? (
-                    <>
-                      {visibleActivities.map((item) => (
-                        <View key={item} style={[styles.chip, styles.chipActive]}>
-                          <Text style={[styles.chipText, styles.chipTextActive]}>{item}</Text>
-                        </View>
-                      ))}
-                      {hiddenActivities > 0 ? (
-                        <View style={styles.moreChip}>
-                          <Text style={styles.moreChipText}>+{hiddenActivities} fler</Text>
-                        </View>
-                      ) : null}
-                    </>
-                  ) : (
-                    <Text style={styles.mutedText}>Inga aktiviteter valda ännu.</Text>
-                  )}
-                </View>
-              </View>
-
-              <View style={styles.card}>
-                <Text style={styles.sectionEyebrow}>VOLONTÄRPROGRAM</Text>
-                <Text style={styles.sectionTitle}>Stötta andra</Text>
-                <Text style={styles.bodyText}>
-                  Öppna volontärprogrammet för att se aktiva volontärer eller skicka in en ansökan.
-                </Text>
-
-                <TouchableOpacity
-                  style={[styles.primaryButton, { marginTop: 16, marginBottom: 0 }]}
-                  onPress={() => router.push('/volunteers')}
-                >
-                  <Text style={styles.primaryButtonText}>Öppna volontärer</Text>
-                </TouchableOpacity>
-              </View>
-
-              {isAdmin ? (
-                <View style={styles.card}>
-                  <Text style={styles.sectionEyebrow}>ADMIN</Text>
-                  <Text style={styles.sectionTitle}>Moderering</Text>
-                  <Text style={styles.bodyText}>
-                    Du har adminåtkomst. Härifrån kan du öppna rapportöversikten.
-                  </Text>
-
-                  <TouchableOpacity
-                    style={[styles.adminButton, { marginTop: 16 }]}
-                    onPress={() => router.push('/admin/reports')}
+            <View style={styles.tabs}>
+              {[
+                { key: 'profile' as const, label: 'Profil', icon: 'person-outline' as const },
+                { key: 'friends' as const, label: 'Vänner', icon: 'people-outline' as const },
+                { key: 'settings' as const, label: 'Inställningar', icon: 'settings-outline' as const },
+              ].map((tab) => {
+                const active = activeTab === tab.key;
+                return (
+                  <Pressable
+                    key={tab.key}
+                    style={[styles.tabButton, active && styles.tabButtonActive]}
+                    onPress={() => setActiveTab(tab.key)}
                   >
-                    <Text style={styles.adminButtonText}>🛡 Öppna admin / rapporter</Text>
-                  </TouchableOpacity>
+                    <Ionicons name={tab.icon} size={18} color={active ? '#FFFFFF' : '#617092'} />
+                    <Text style={[styles.tabText, active && styles.tabTextActive]}>{tab.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
 
-                  <TouchableOpacity
-                    style={[styles.primaryButton, { marginTop: 12, marginBottom: 0 }]}
-                    onPress={() => router.push('/admin/volunteers')}
-                  >
-                    <Text style={styles.primaryButtonText}>💚 Öppna admin / volontärer</Text>
-                  </TouchableOpacity>
-                </View>
-              ) : null}
-
-              <View style={styles.card}>
-                <Text style={styles.sectionEyebrow}>KONTO</Text>
-                <Text style={styles.sectionTitle}>Inloggning och konto</Text>
-
-                <View style={styles.accountActions}>
-                  <TouchableOpacity
-                    style={[styles.accountButton, styles.accountNeutral]}
-                    onPress={switchAccount}
-                  >
-                    <Text style={styles.accountNeutralText}>Byt konto</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.accountButton, styles.accountDanger, styles.accountButtonLast]}
-                    onPress={logout}
-                  >
-                    <Text style={styles.accountDangerText}>Logga ut</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              <View style={[styles.card, styles.deleteCard]}>
-                <Text style={styles.sectionEyebrow}>FAROZON</Text>
-                <Text style={styles.sectionTitle}>Ta bort konto</Text>
-                <Text style={styles.bodyText}>
-                  Det här tar bort ditt konto permanent. Åtgärden går inte att ångra.
-                </Text>
-
-                <TouchableOpacity
-                  style={[styles.deleteButton, { marginTop: 16 }]}
-                  onPress={openDeleteAccountModal}
-                >
-                  <Text style={styles.deleteButtonText}>Ta bort konto permanent</Text>
-                </TouchableOpacity>
-              </View>
-            </>
-          ) : (
-            <>
-              <View style={styles.card}>
-                <Text style={styles.sectionEyebrow}>REDIGERA</Text>
-                <Text style={styles.sectionTitle}>Grunduppgifter</Text>
-
-                <Text style={styles.fieldLabel}>Namn</Text>
-                <TextInput
-                  value={name}
-                  onChangeText={setName}
-                  placeholder="Ditt namn"
-                  placeholderTextColor="#8A97B8"
-                  style={styles.input}
-                />
-
-                <Text style={styles.fieldLabel}>Plats</Text>
-                <TextInput
-                  value={city}
-                  onChangeText={setCity}
-                  placeholder="Till exempel Stockholm"
-                  placeholderTextColor="#8A97B8"
-                  style={styles.input}
-                />
-
-                <Text style={styles.fieldLabel}>Land</Text>
-                <TextInput
-                  value={country}
-                  onChangeText={setCountry}
-                  placeholder="Till exempel Sverige"
-                  placeholderTextColor="#8A97B8"
-                  style={styles.input}
-                />
-
-                <Text style={styles.fieldLabel}>Ålder</Text>
-                <TextInput
-                  value={age}
-                  onChangeText={setAge}
-                  placeholder="Din ålder"
-                  placeholderTextColor="#8A97B8"
-                  keyboardType="number-pad"
-                  style={styles.input}
-                />
-
-                <Text style={styles.fieldLabel}>Om mig</Text>
-                <TextInput
-                  value={bio}
-                  onChangeText={setBio}
-                  placeholder="Skriv kort om dig själv"
-                  placeholderTextColor="#8A97B8"
-                  multiline
-                  textAlignVertical="top"
-                  style={[styles.input, styles.textArea]}
-                />
-              </View>
-
-              <View style={styles.card}>
-                <Text style={styles.sectionEyebrow}>FILTER</Text>
-                <Text style={styles.sectionTitle}>Åldersfilter för matchning</Text>
-                <Text style={styles.helperText}>Välj vilka åldrar du vill kunna matcha med.</Text>
-
-                <View style={[styles.editRow, { flexDirection: isTablet ? 'row' : 'column' }]}>
-                  <View style={styles.editCol}>
-                    <Text style={styles.fieldLabel}>Min ålder</Text>
-                    <TextInput
-                      value={minAge}
-                      onChangeText={setMinAge}
-                      placeholder="18"
-                      placeholderTextColor="#8A97B8"
-                      keyboardType="number-pad"
-                      style={styles.input}
-                    />
-                  </View>
-
-                  <View style={[styles.editCol, styles.editColLast]}>
-                    <Text style={styles.fieldLabel}>Max ålder</Text>
-                    <TextInput
-                      value={maxAge}
-                      onChangeText={setMaxAge}
-                      placeholder="99"
-                      placeholderTextColor="#8A97B8"
-                      keyboardType="number-pad"
-                      style={styles.input}
-                    />
-                  </View>
-                </View>
-              </View>
-
-              <View style={styles.card}>
-                <View style={styles.activitiesHeader}>
-                  <View>
-                    <Text style={styles.sectionEyebrow}>INTRESSEN</Text>
-                    <Text style={styles.sectionTitle}>Välj aktiviteter</Text>
-                  </View>
-
-                  <View style={styles.counterBadge}>
-                    <Text style={styles.counterBadgeText}>
-                      {selectedActivities.length}/{MAX_ACTIVITIES}
-                    </Text>
-                  </View>
-                </View>
-
-                {ACTIVITY_CATEGORIES.map((category) => (
-                  <View key={category.title} style={styles.categoryCard}>
-                    <View style={styles.categoryTitleRow}>
-                      <Text style={styles.categoryEmoji}>{category.emoji}</Text>
-                      <Text style={styles.categoryTitle}>{category.title}</Text>
-                    </View>
-
-                    <View style={styles.chipsWrap}>
-                      {category.items.map((item) => {
-                        const active = selectedActivities.includes(item);
-
-                        return (
-                          <TouchableOpacity
-                            key={`${category.title}-${item}`}
-                            onPress={() => toggleActivity(item)}
-                            style={[styles.chip, active && styles.chipActive]}
-                          >
-                            <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                              {item}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                  </View>
-                ))}
-              </View>
-
-              <TouchableOpacity style={styles.saveButton} onPress={saveProfile} disabled={saving}>
-                {saving ? (
-                  <ActivityIndicator color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.saveButtonText}>Spara ändringar</Text>
-                )}
-              </TouchableOpacity>
-            </>
-          )}
-          </View>
+          {isEditing
+            ? renderEditView()
+            : activeTab === 'profile'
+              ? renderProfileView()
+              : activeTab === 'friends'
+                ? renderFriendsView()
+                : renderSettingsView()}
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -949,80 +915,49 @@ export default function ProfileScreen() {
         animationType="slide"
         presentationStyle="overFullScreen"
         onRequestClose={() => {
-          if (!deletingAccount) {
-            setDeleteModalVisible(false);
-            setDeleteConfirmValue('');
-          }
+          if (!deletingAccount) setDeleteModalVisible(false);
         }}
       >
         <KeyboardAvoidingView
           style={styles.modalKeyboardWrap}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
         >
           <Pressable
             style={styles.modalOverlay}
             onPress={() => {
-              if (deletingAccount) return;
-              setDeleteModalVisible(false);
-              setDeleteConfirmValue('');
+              if (!deletingAccount) setDeleteModalVisible(false);
             }}
           >
             <Pressable style={styles.deleteModalSheet} onPress={() => {}}>
-              <ScrollView
-                keyboardShouldPersistTaps="handled"
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={styles.deleteModalContent}
-              >
-                <Text style={styles.deleteModalTitle}>Ta bort konto</Text>
-
-                <Text style={styles.deleteModalText}>
-                  Det här raderar ditt konto permanent. Skriv{' '}
-                  <Text style={styles.deleteModalStrong}>{DELETE_CONFIRM_TEXT}</Text> för att
-                  fortsätta.
-                </Text>
-
-                <TextInput
-                  value={deleteConfirmValue}
-                  onChangeText={setDeleteConfirmValue}
-                  placeholder={`Skriv ${DELETE_CONFIRM_TEXT}`}
-                  placeholderTextColor="#9AA6C1"
-                  autoCapitalize="characters"
-                  autoCorrect={false}
-                  editable={!deletingAccount}
-                  returnKeyType="done"
-                  style={styles.deleteInput}
-                />
-
-                <View style={styles.deleteModalActions}>
-                  <Pressable
-                    style={[styles.deleteCancelButton, deletingAccount && styles.disabledButton]}
-                    onPress={() => {
-                      if (deletingAccount) return;
-                      setDeleteModalVisible(false);
-                      setDeleteConfirmValue('');
-                    }}
-                    disabled={deletingAccount}
-                  >
-                    <Text style={styles.deleteCancelButtonText}>Avbryt</Text>
-                  </Pressable>
-
-                  <Pressable
-                    style={[
-                      styles.deleteConfirmButton,
-                      (!canConfirmDelete || deletingAccount) && styles.disabledButton,
-                    ]}
-                    onPress={deleteAccount}
-                    disabled={!canConfirmDelete || deletingAccount}
-                  >
-                    {deletingAccount ? (
-                      <ActivityIndicator color="#FFFFFF" />
-                    ) : (
-                      <Text style={styles.deleteConfirmButtonText}>Radera konto</Text>
-                    )}
-                  </Pressable>
-                </View>
-              </ScrollView>
+              <Text style={styles.deleteModalTitle}>Radera konto</Text>
+              <Text style={styles.deleteModalText}>
+                Det här raderar ditt konto permanent. Skriv{' '}
+                <Text style={styles.deleteModalStrong}>{DELETE_CONFIRM_TEXT}</Text> för att fortsätta.
+              </Text>
+              <TextInput
+                value={deleteConfirmValue}
+                onChangeText={setDeleteConfirmValue}
+                placeholder={`Skriv ${DELETE_CONFIRM_TEXT}`}
+                placeholderTextColor="#9AA6C1"
+                autoCapitalize="characters"
+                style={styles.input}
+              />
+              <View style={styles.deleteModalActions}>
+                <Pressable style={styles.neutralButton} onPress={() => setDeleteModalVisible(false)}>
+                  <Text style={styles.neutralButtonText}>Avbryt</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.dangerButton, !canConfirmDelete && styles.disabledButton]}
+                  onPress={deleteAccount}
+                  disabled={!canConfirmDelete}
+                >
+                  {deletingAccount ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.dangerButtonText}>Radera</Text>
+                  )}
+                </Pressable>
+              </View>
             </Pressable>
           </Pressable>
         </KeyboardAvoidingView>
@@ -1036,105 +971,88 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F7F6F2',
   },
-
   scrollContent: {
     paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 40,
+    paddingTop: 18,
+    paddingBottom: 42,
   },
-
-  pageWrap: {
-    width: '100%',
-    maxWidth: 820,
-    alignSelf: 'center',
-  },
-
-  pageWrapWide: {
-    maxWidth: 860,
-  },
-
-  pageHeader: {
-    marginBottom: 12,
-  },
-
-  pageTitle: {
-    fontSize: 30,
-    lineHeight: 36,
-    fontWeight: '900',
-    color: '#0F1E38',
-    marginBottom: 4,
-  },
-
-  pageSubtitle: {
-    fontSize: 14,
-    lineHeight: 21,
-    color: '#6D778C',
-  },
-
   loadingWrap: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F4F6FB',
+    backgroundColor: '#F7F6F2',
   },
-
   loadingText: {
     marginTop: 12,
     color: '#20325E',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
   },
-
+  pageHeader: {
+    marginBottom: 14,
+  },
+  pageTitle: {
+    color: '#0F1E38',
+    fontSize: 34,
+    fontWeight: '900',
+    lineHeight: 40,
+  },
+  pageSubtitle: {
+    color: '#7A8499',
+    fontSize: 15,
+    lineHeight: 22,
+    marginTop: 4,
+  },
+  tabs: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 14,
+  },
+  tabButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#E2E7F0',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  tabButtonActive: {
+    backgroundColor: '#1C5E52',
+    borderColor: '#1C5E52',
+  },
+  tabText: {
+    color: '#617092',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  tabTextActive: {
+    color: '#FFFFFF',
+  },
   heroCard: {
     backgroundColor: '#0F1E38',
-    borderRadius: 26,
+    borderRadius: 28,
     padding: 20,
     marginBottom: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
     shadowColor: '#0F1E38',
-    shadowOpacity: Platform.OS === 'web' ? 0.06 : 0.16,
-    shadowRadius: 20,
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
     shadowOffset: { width: 0, height: 10 },
     elevation: 3,
   },
-
-  heroTop: {
-    marginBottom: 18,
-  },
-
-  avatarButton: {
-    width: 108,
-    height: 108,
-    borderRadius: 54,
-    position: 'relative',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 14,
-  },
-
-  avatarImage: {
-    width: 108,
-    height: 108,
-    borderRadius: 54,
-    borderWidth: 3,
-    borderColor: '#FFFFFF',
-  },
-
-  avatarFallback: {
-    width: 108,
-    height: 108,
-    borderRadius: 54,
-    backgroundColor: '#EEF4FF',
-    borderWidth: 3,
-    borderColor: '#FFFFFF',
+  avatarWrap: {
+    alignSelf: 'center',
+    width: 112,
+    height: 112,
     alignItems: 'center',
     justifyContent: 'center',
   },
-
   cameraBadge: {
     position: 'absolute',
-    right: 2,
+    right: 0,
     bottom: 2,
     width: 36,
     height: 36,
@@ -1145,449 +1063,415 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#FFFFFF',
   },
-
-  heroTextWrap: {
-    flex: 1,
+  heroText: {
     alignItems: 'center',
+    marginTop: 14,
   },
-
-  heroEyebrow: {
-    fontSize: 11,
-    lineHeight: 14,
-    letterSpacing: 1.4,
-    fontWeight: '800',
+  eyebrow: {
     color: '#7ED3C4',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 1.4,
     marginBottom: 8,
   },
-
   profileName: {
-    fontSize: 29,
-    lineHeight: 34,
-    fontWeight: '900',
     color: '#FFFFFF',
-    marginBottom: 4,
+    fontSize: 31,
+    fontWeight: '900',
+    lineHeight: 36,
     textAlign: 'center',
   },
-
   profileMeta: {
-    fontSize: 14,
-    lineHeight: 22,
     color: 'rgba(255,255,255,0.72)',
-    marginBottom: 12,
+    fontSize: 15,
+    lineHeight: 22,
+    marginTop: 5,
     textAlign: 'center',
   },
-
-  heroPillsRow: {
+  badgeRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
-    marginBottom: 10,
+    gap: 8,
+    marginTop: 16,
   },
-
-  heroPill: {
+  badge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.10)',
+    gap: 6,
+    backgroundColor: 'rgba(255,255,255,0.12)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.14)',
+    borderColor: 'rgba(255,255,255,0.16)',
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    marginRight: 8,
-    marginBottom: 8,
   },
-
-  heroPillText: {
+  badgeText: {
     color: '#FFFFFF',
     fontSize: 13,
-    fontWeight: '700',
-    marginLeft: 6,
+    fontWeight: '800',
   },
-
-  emailText: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: 'rgba(255,255,255,0.62)',
-  },
-
   heroActions: {
-    marginTop: 2,
+    marginTop: 18,
+    gap: 10,
   },
-
-  heroActionHalf: {
-    flex: 1,
-  },
-
   primaryButton: {
     minHeight: 52,
-    borderRadius: 16,
+    borderRadius: 18,
     backgroundColor: '#E05C4B',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 16,
-    marginBottom: 10,
   },
-
   primaryButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: '900',
   },
-
-  secondaryButtonStrong: {
+  secondaryButton: {
     minHeight: 52,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.10)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-    marginBottom: 10,
-  },
-
-  secondaryButtonStrongText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '800',
-  },
-
-  adminButton: {
-    minHeight: 56,
     borderRadius: 18,
-    backgroundColor: '#8F2D0A',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.16)',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 16,
   },
-
-  adminButtonText: {
+  secondaryButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '900',
   },
-
-  removeAvatarText: {
-    marginTop: 4,
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 14,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-
   statsRow: {
     flexDirection: 'row',
-    marginBottom: 14,
+    gap: 9,
+    marginBottom: 12,
   },
-
   statCard: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    paddingVertical: 14,
-    paddingHorizontal: 10,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: '#E6EAF4',
+    paddingVertical: 14,
+    paddingHorizontal: 8,
     alignItems: 'center',
-    marginRight: 10,
   },
-
-  statCardLast: {
-    marginRight: 0,
-  },
-
   statValue: {
-    fontSize: 20,
-    lineHeight: 26,
-    fontWeight: '900',
     color: '#0F1E38',
-    marginBottom: 5,
+    fontSize: 20,
+    fontWeight: '900',
+    lineHeight: 25,
   },
-
   statLabel: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: '600',
-    color: '#7A8AAA',
-    textAlign: 'center',
+    color: '#7A8499',
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 4,
   },
-
   card: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 18,
-    marginBottom: 12,
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: '#E6EAF4',
+    padding: 18,
+    marginBottom: 12,
     shadowColor: '#20325E',
-    shadowOpacity: Platform.OS === 'web' ? 0.03 : 0.05,
+    shadowOpacity: 0.05,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 6 },
     elevation: 2,
   },
-
-  deleteCard: {
-    borderColor: '#F2D1D1',
-    backgroundColor: '#FFF9F9',
-  },
-
-  sectionEyebrow: {
-    fontSize: 11,
-    lineHeight: 14,
-    letterSpacing: 1.2,
-    fontWeight: '800',
-    color: '#7A8AAA',
-    marginBottom: 8,
-  },
-
-  sectionTitle: {
-    fontSize: 21,
-    lineHeight: 27,
-    fontWeight: '900',
-    color: '#0F1E38',
-    marginBottom: 8,
-  },
-
-  bodyText: {
-    fontSize: 15,
-    lineHeight: 24,
-    color: '#34405A',
-  },
-
-  matchingText: {
-    fontSize: 20,
-    lineHeight: 26,
-    fontWeight: '800',
-    color: '#20325E',
-  },
-
-  mutedText: {
-    fontSize: 15,
-    lineHeight: 22,
-    color: '#7A8AAA',
-  },
-
-  accountActions: {
-    flexDirection: 'row',
-    marginTop: 6,
-  },
-
-  accountButton: {
-    flex: 1,
-    minHeight: 54,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-    marginRight: 10,
-  },
-
-  accountButtonLast: {
-    marginRight: 0,
-  },
-
-  accountNeutral: {
-    backgroundColor: '#F1F5FC',
-    borderWidth: 1,
-    borderColor: '#DCE4F3',
-  },
-
-  accountNeutralText: {
-    color: '#20325E',
-    fontSize: 16,
-    fontWeight: '800',
-  },
-
-  accountDanger: {
-    backgroundColor: '#FFF4F4',
-    borderWidth: 1,
-    borderColor: '#F2D1D1',
-  },
-
-  accountDangerText: {
-    color: '#BB4C4C',
-    fontSize: 16,
-    fontWeight: '800',
-  },
-
-  deleteButton: {
-    minHeight: 56,
-    borderRadius: 18,
-    backgroundColor: '#C93C3C',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-  },
-
-  deleteButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '900',
-  },
-
-  fieldLabel: {
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: '700',
-    color: '#20325E',
-    marginBottom: 8,
-    marginTop: 10,
-  },
-
-  helperText: {
-    fontSize: 15,
-    lineHeight: 22,
-    color: '#7A8AAA',
-    marginBottom: 6,
-  },
-
-  input: {
-    minHeight: 58,
-    borderRadius: 16,
-    backgroundColor: '#F2F5FB',
-    borderWidth: 1,
-    borderColor: '#E0E6F2',
-    paddingHorizontal: 16,
-    fontSize: 16,
-    color: '#20325E',
-  },
-
-  textArea: {
-    minHeight: 126,
-    paddingTop: 16,
-    paddingBottom: 16,
-  },
-
-  editRow: {
-    marginTop: 2,
-  },
-
-  editCol: {
-    flex: 1,
-    marginRight: 10,
-  },
-
-  editColLast: {
-    marginRight: 0,
-  },
-
-  activitiesHeader: {
+  sectionHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
+    gap: 12,
     marginBottom: 8,
   },
-
-  counterBadge: {
-    backgroundColor: '#EEF4FF',
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: '#D8E4FA',
+  sectionLabel: {
+    color: '#7A8499',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+    marginBottom: 7,
   },
-
-  counterBadgeText: {
-    color: '#20325E',
+  sectionTitle: {
+    color: '#0F1E38',
+    fontSize: 21,
+    fontWeight: '900',
+    lineHeight: 27,
+    marginBottom: 8,
+  },
+  sectionAction: {
+    color: '#E05C4B',
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: '900',
   },
-
-  categoryCard: {
-    backgroundColor: '#FBFCFF',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#E6EAF4',
-    padding: 16,
-    marginTop: 10,
-  },
-
-  categoryTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-
-  categoryEmoji: {
-    fontSize: 22,
-    marginRight: 10,
-  },
-
-  categoryTitle: {
-    fontSize: 19,
+  bodyText: {
+    color: '#34405A',
+    fontSize: 15,
     lineHeight: 24,
-    fontWeight: '800',
-    color: '#20325E',
   },
-
+  mutedText: {
+    color: '#7A8499',
+    fontSize: 15,
+    lineHeight: 22,
+  },
   chipsWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    gap: 8,
   },
-
-  chip: {
+  chipActive: {
+    backgroundColor: '#EAF6F2',
+    borderColor: '#1C5E52',
+    borderWidth: 1.5,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+  },
+  chipActiveText: {
+    color: '#1C5E52',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  friendStrip: {
+    gap: 12,
+    paddingRight: 6,
+  },
+  friendMini: {
+    width: 72,
+    alignItems: 'center',
+  },
+  friendMiniName: {
+    color: '#20325E',
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 6,
+    maxWidth: 72,
+  },
+  friendList: {
+    marginTop: 12,
+  },
+  friendRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#EEF1F6',
+  },
+  friendInfo: {
+    flex: 1,
+  },
+  friendName: {
+    color: '#0F1E38',
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  friendMeta: {
+    color: '#7A8499',
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 3,
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 18,
+  },
+  emptyIcon: {
+    fontSize: 38,
+    marginBottom: 10,
+  },
+  emptyTitle: {
+    color: '#0F1E38',
+    fontSize: 22,
+    fontWeight: '900',
+    marginBottom: 6,
+  },
+  emptyText: {
+    color: '#7A8499',
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  settingsList: {
+    marginTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#EEF1F6',
+  },
+  settingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEF1F6',
+  },
+  settingTextWrap: {
+    flex: 1,
+  },
+  settingTitle: {
+    color: '#0F1E38',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  settingSub: {
+    color: '#7A8499',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  accountActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 16,
+  },
+  neutralButton: {
+    flex: 1,
+    minHeight: 52,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#DCE4F3',
+    backgroundColor: '#F4F7FC',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  neutralButtonText: {
+    color: '#20325E',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  dangerButton: {
+    flex: 1,
+    minHeight: 52,
+    borderRadius: 16,
+    backgroundColor: '#C93C3C',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  dangerButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  editHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  roundIconButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E6EAF4',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editTitle: {
+    color: '#0F1E38',
+    fontSize: 21,
+    fontWeight: '900',
+  },
+  savePill: {
+    minWidth: 82,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#1C5E52',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  savePillText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  fieldLabel: {
+    color: '#20325E',
+    fontSize: 14,
+    fontWeight: '900',
+    marginBottom: 8,
+    marginTop: 10,
+  },
+  input: {
+    minHeight: 56,
+    borderRadius: 17,
+    backgroundColor: '#F3F6FC',
+    borderWidth: 1,
+    borderColor: '#DFE6F2',
+    paddingHorizontal: 15,
+    color: '#20325E',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  textArea: {
+    minHeight: 126,
+    paddingTop: 15,
+    paddingBottom: 15,
+    lineHeight: 22,
+  },
+  ageRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  ageCol: {
+    flex: 1,
+  },
+  counterBadge: {
+    backgroundColor: '#EEF4FF',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#D8E4FA',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  counterBadgeText: {
+    color: '#20325E',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  categoryBlock: {
+    marginTop: 14,
+  },
+  categoryTitle: {
+    color: '#20325E',
+    fontSize: 16,
+    fontWeight: '900',
+    marginBottom: 10,
+  },
+  choiceChip: {
     backgroundColor: '#F3F6FC',
     borderWidth: 1.5,
     borderColor: '#D7DFEF',
     borderRadius: 999,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    marginRight: 10,
-    marginBottom: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
   },
-
-  chipActive: {
+  choiceChipActive: {
     backgroundColor: '#EAF6F2',
     borderColor: '#1C5E52',
   },
-
-  chipText: {
-    color: '#20325E',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-
-  chipTextActive: {
-    color: '#1C5E52',
-  },
-
-  moreChip: {
-    backgroundColor: '#EEF4FF',
-    borderWidth: 1,
-    borderColor: '#D8E4FA',
-    borderRadius: 999,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    marginRight: 10,
-    marginBottom: 10,
-  },
-
-  moreChipText: {
+  choiceChipText: {
     color: '#20325E',
     fontSize: 14,
-    fontWeight: '700',
-  },
-
-  saveButton: {
-    backgroundColor: '#1C5E52',
-    minHeight: 60,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 14,
-  },
-
-  saveButtonText: {
-    color: '#FFFFFF',
-    fontSize: 18,
     fontWeight: '800',
   },
-
+  choiceChipTextActive: {
+    color: '#1C5E52',
+  },
   modalKeyboardWrap: {
     flex: 1,
     justifyContent: 'flex-end',
   },
-
   modalOverlay: {
     flex: 1,
     justifyContent: 'flex-end',
@@ -1595,91 +1479,36 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingBottom: Platform.OS === 'ios' ? 10 : 8,
   },
-
   deleteModalSheet: {
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    padding: 20,
     borderWidth: 1,
     borderColor: '#E6EAF4',
-    maxHeight: '72%',
   },
-
-  deleteModalContent: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: Platform.OS === 'ios' ? 20 : 16,
-  },
-
   deleteModalTitle: {
-    fontSize: 24,
+    color: '#0F1E38',
+    fontSize: 25,
     fontWeight: '900',
-    color: '#20325E',
     marginBottom: 10,
   },
-
   deleteModalText: {
-    fontSize: 15,
-    lineHeight: 24,
     color: '#5B6785',
+    fontSize: 15,
+    lineHeight: 23,
     marginBottom: 14,
   },
-
   deleteModalStrong: {
-    color: '#BB3B3B',
+    color: '#C93C3C',
     fontWeight: '900',
   },
-
-  deleteInput: {
-    minHeight: 54,
-    borderRadius: 16,
-    backgroundColor: '#FFF7F7',
-    borderWidth: 1,
-    borderColor: '#F1D1D1',
-    paddingHorizontal: 14,
-    fontSize: 16,
-    color: '#20325E',
-    marginBottom: 16,
-  },
-
   deleteModalActions: {
     flexDirection: 'row',
     gap: 10,
+    marginTop: 14,
   },
-
-  deleteCancelButton: {
-    flex: 1,
-    minHeight: 52,
-    borderRadius: 16,
-    backgroundColor: '#F1F5FC',
-    borderWidth: 1,
-    borderColor: '#DCE4F3',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  deleteCancelButtonText: {
-    color: '#20325E',
-    fontSize: 15,
-    fontWeight: '800',
-  },
-
-  deleteConfirmButton: {
-    flex: 1,
-    minHeight: 52,
-    borderRadius: 16,
-    backgroundColor: '#C93C3C',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  deleteConfirmButtonText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '900',
-  },
-
   disabledButton: {
-    opacity: 0.55,
+    opacity: 0.5,
   },
 });
