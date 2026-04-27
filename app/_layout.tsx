@@ -26,7 +26,11 @@ function AuthGuard({
     if (!segments.length) return;
 
     const inAuthScreen =
-      segments[0] === 'login' || segments[0] === 'verify';
+      segments[0] === 'login' ||
+      segments[0] === 'register' ||
+      segments[0] === 'forgot-password' ||
+      segments[0] === 'reset-password' ||
+      segments[0] === 'verify';
 
     if (!session && !inAuthScreen) {
       router.replace('/login');

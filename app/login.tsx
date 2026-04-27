@@ -137,11 +137,11 @@ export default function LoginScreen() {
               )}
             </Pressable>
 
-            <Pressable onPress={() => router.push('/register')} disabled={loading}>
+            <Pressable style={styles.linkButton} onPress={() => router.replace('/register')} disabled={loading}>
               <Text style={styles.link}>Har du inget konto? Skapa konto</Text>
             </Pressable>
 
-            <Pressable onPress={() => router.push('/forgot-password')} disabled={loading}>
+            <Pressable style={styles.linkButton} onPress={() => router.push('/forgot-password')} disabled={loading}>
               <Text style={styles.linkSecondary}>Glömt lösenord?</Text>
             </Pressable>
           </View>
@@ -302,6 +302,12 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'center',
     marginBottom: 14,
+  },
+
+  linkButton: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   linkSecondary: {
