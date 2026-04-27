@@ -50,6 +50,13 @@ type BlockedRow = {
   blockerad: string | null;
 };
 
+const DISCOVER_ACTIONS = [
+  { emoji: '⚡', title: 'Aktiva nu', sub: 'folk som vill ses', route: '/now' },
+  { emoji: '📍', title: 'Nära dig', sub: 'karta och avstånd', route: '/nearby' },
+  { emoji: '💙', title: 'Matcher', sub: 'öppna samtal', route: '/matches' },
+  { emoji: '🤝', title: 'Volontär', sub: 'tryggt stöd', route: '/volunteers' },
+];
+
 const FILTERS: { key: FilterKey; label: string }[] = [
   { key: 'alla', label: 'Alla' },
   { key: 'prata', label: 'Prata' },
@@ -322,24 +329,28 @@ export default function HittaScreen() {
       >
         <WithUPage style={styles.page}>
           <View style={styles.heroCard}>
-            <Text style={styles.heroEyebrow}>Hitta</Text>
+            <View style={styles.heroTopRow}>
+              <View style={styles.livePill}>
+                <View style={styles.liveDot} />
+                <Text style={styles.liveText}>Live nära dig</Text>
+              </View>
+              <Text style={styles.heroCount}>{visibleProfiles.length} nya</Text>
+            </View>
             <Text style={styles.heroTitle}>
-              {userName ? `Hej ${userName}, välj vad du söker` : 'Välj vad du söker'}
+              {userName ? `Hej ${userName.split(' ')[0]}` : 'Hej'} - hitta någon att prata med
             </Text>
             <Text style={styles.heroText}>
-              Sök på aktivitet, stad eller namn. När du gillar någon tas personen bort från Hitta
-              och väntar på svar.
+              Välj aktivitet, skicka en fråga och gå vidare. Personen försvinner från Upptäck när du tryckt.
             </Text>
-            <View style={styles.heroQuickActions}>
-              <Pressable style={styles.heroQuickButton} onPress={() => router.push('/nearby')}>
-                <Text style={styles.heroQuickEmoji}>📍</Text>
-                <Text style={styles.heroQuickText}>Karta</Text>
-              </Pressable>
-              <Pressable style={styles.heroQuickButton} onPress={() => router.push('/matches')}>
-                <Text style={styles.heroQuickEmoji}>💙</Text>
-                <Text style={styles.heroQuickText}>Matcher</Text>
-              </Pressable>
-            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.actionRail}>
+              {DISCOVER_ACTIONS.map((action) => (
+                <Pressable key={action.title} style={styles.actionCard} onPress={() => router.push(action.route as any)}>
+                  <Text style={styles.actionEmoji}>{action.emoji}</Text>
+                  <Text style={styles.actionTitle}>{action.title}</Text>
+                  <Text style={styles.actionSub}>{action.sub}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
           </View>
 
           <Pressable style={styles.volunteerCard} onPress={() => router.push('/volunteers')}>
@@ -408,6 +419,7 @@ export default function HittaScreen() {
             </View>
           ) : (
             <View style={styles.profileList}>
+              <Text style={styles.sectionLabel}>Personer som matchar dina val</Text>
               {visibleProfiles.map((profile) => {
                 const avatar = getAvatarEmoji(profile);
                 const city = profile.city || 'Plats saknas';
@@ -429,6 +441,10 @@ export default function HittaScreen() {
                         {profile.is_bankid_verified ? (
                           <Text style={styles.verifiedText}>Verifierad</Text>
                         ) : null}
+                      </View>
+                      <View style={styles.matchScore}>
+                        <Ionicons name="sparkles" size={14} color={withuColors.coral} />
+                        <Text style={styles.matchScoreText}>Bra match</Text>
                       </View>
                     </View>
 
@@ -486,14 +502,19 @@ const styles = StyleSheet.create({
     marginBottom: withuSpacing.md,
     ...withuShadows.card,
   },
-  heroEyebrow: {
-    color: withuColors.success,
-    fontSize: 12,
-    fontWeight: '900',
-    textTransform: 'uppercase',
-    letterSpacing: 1.2,
-    marginBottom: 8,
+  heroTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  livePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: withuRadius.pill,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
   },
+  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: withuColors.success },
+  liveText: { color: withuColors.white, fontSize: 12, fontWeight: '900' },
+  heroCount: { color: 'rgba(255,255,255,0.74)', fontSize: 12, fontWeight: '900' },
   heroTitle: {
     color: withuColors.white,
     fontSize: 27,
@@ -507,24 +528,18 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     fontWeight: '700',
   },
-  heroQuickActions: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 16,
+  actionRail: { gap: 10, paddingTop: 16 },
+  actionCard: {
+    width: 118,
+    minHeight: 96,
+    borderRadius: withuRadius.lg,
+    backgroundColor: withuColors.white,
+    padding: 12,
+    justifyContent: 'space-between',
   },
-  heroQuickButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.16)',
-    borderRadius: withuRadius.pill,
-    paddingHorizontal: 13,
-    paddingVertical: 9,
-  },
-  heroQuickEmoji: { fontSize: 15 },
-  heroQuickText: { color: withuColors.white, fontSize: 13, fontWeight: '900' },
+  actionEmoji: { fontSize: 25 },
+  actionTitle: { color: withuColors.navy, fontSize: 14, fontWeight: '900' },
+  actionSub: { color: withuColors.muted, fontSize: 10, fontWeight: '800', marginTop: 2 },
   volunteerCard: {
     backgroundColor: withuColors.white,
     borderRadius: withuRadius.lg,
@@ -587,6 +602,13 @@ const styles = StyleSheet.create({
   emptyTitle: { color: withuColors.navy, fontSize: 20, fontWeight: '900', textAlign: 'center' },
   centerText: { color: withuColors.muted, fontSize: 14, lineHeight: 20, textAlign: 'center' },
   profileList: { gap: withuSpacing.md },
+  sectionLabel: {
+    color: withuColors.muted,
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
   profileCard: {
     backgroundColor: withuColors.white,
     borderRadius: withuRadius.lg,
@@ -609,6 +631,16 @@ const styles = StyleSheet.create({
   profileName: { color: withuColors.navy, fontSize: 20, fontWeight: '900' },
   profileMeta: { color: withuColors.muted, fontSize: 14, fontWeight: '700', marginTop: 2 },
   verifiedText: { color: withuColors.teal, fontSize: 12, fontWeight: '900', marginTop: 5 },
+  matchScore: {
+    borderRadius: withuRadius.pill,
+    backgroundColor: withuColors.coralBg,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  matchScoreText: { color: withuColors.coral, fontSize: 10, fontWeight: '900' },
   bioText: { color: withuColors.text, fontSize: 14, lineHeight: 21, marginTop: 14 },
   activityRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
   activityChip: {
