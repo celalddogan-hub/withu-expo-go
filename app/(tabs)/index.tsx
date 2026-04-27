@@ -65,6 +65,10 @@ type BlockedRow = {
   blockerad: string | null;
 };
 
+type AdminRow = {
+  user_id: string | null;
+};
+
 const DISCOVER_ACTIONS = [
   { emoji: '⚡', title: 'Aktiva nu', sub: 'folk som vill ses', route: '/now' },
   { emoji: '📍', title: 'Nära dig', sub: 'karta och avstånd', route: '/nearby' },
@@ -222,7 +226,7 @@ export default function HittaScreen() {
       setCurrentUserId(user.id);
 
       const nowIso = new Date().toISOString();
-      const [ownProfile, outgoingMatches, incomingMatches, blockedIds, profileRows, volunteerCountResult] =
+      const [ownProfile, outgoingMatches, incomingMatches, blockedIds, adminRows, profileRows, volunteerCountResult] =
         await Promise.all([
         supabase.from('profiles').select('name').eq('id', user.id).maybeSingle(),
         supabase
@@ -236,11 +240,13 @@ export default function HittaScreen() {
           .eq('target_id', user.id)
           .in('action', ['like', 'superlike']),
         loadBlockedIds(user.id),
+        supabase.from('admins').select('user_id'),
         supabase
           .from('profiles')
           .select('id, name, age, city, activities, avatar_url, avatar_emoji, is_bankid_verified, bio')
           .neq('id', user.id)
           .eq('is_profile_complete', true)
+          .eq('is_discoverable', true)
           .limit(30),
         supabase
           .from('volunteer_availability')
@@ -252,6 +258,7 @@ export default function HittaScreen() {
       if (ownProfile.error) throw ownProfile.error;
       if (outgoingMatches.error) throw outgoingMatches.error;
       if (incomingMatches.error) throw incomingMatches.error;
+      if (adminRows.error) throw adminRows.error;
       if (profileRows.error) throw profileRows.error;
       if (volunteerCountResult.error) throw volunteerCountResult.error;
 
@@ -260,6 +267,7 @@ export default function HittaScreen() {
 
       const outgoing = (outgoingMatches.data ?? []) as MatchRow[];
       const incoming = (incomingMatches.data ?? []) as MatchRow[];
+      const adminIds = new Set(((adminRows.data ?? []) as AdminRow[]).map((row) => row.user_id).filter(Boolean));
       const contacted = outgoing.map((row) => row.target_id);
       const matched = new Set(outgoing.filter((row) => row.is_match).map((row) => row.target_id));
 
@@ -273,6 +281,7 @@ export default function HittaScreen() {
       setMatchedIds([...matched]);
       setProfiles(
         ((profileRows.data ?? []) as ProfileRow[])
+          .filter((profile) => !adminIds.has(profile.id))
           .filter((profile) => !blockedIds.has(profile.id))
           .filter((profile) => (profile.activities ?? []).length > 0 || !!profile.bio?.trim())
       );

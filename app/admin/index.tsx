@@ -24,19 +24,41 @@ export default function AdminHomeScreen() {
 
   return (
     <WithUScreen>
-      <WithUTopBar
-        title="Admin"
-        subtitle="Översikt"
-        right={<WithUAvatar emoji="🛡️" size={34} />}
-      />
+      <WithUTopBar title="Admin" subtitle="Översikt" right={<WithUAvatar emoji="🛡️" size={34} />} />
 
       <WithUPage style={styles.page}>
         <View style={styles.heroBlock}>
           <Text style={styles.heroTitle}>Admincenter</Text>
           <Text style={styles.heroSubtitle}>
-            Härifrån kan du öppna både rapporter och volontäransökningar.
+            Härifrån kan du öppna användare, rapporter, statistik och volontäransökningar.
           </Text>
         </View>
+
+        <WithUCard style={styles.mainCard}>
+          <WithUSectionLabel>Support</WithUSectionLabel>
+          <WithUTitle style={styles.cardTitle}>Användare</WithUTitle>
+          <WithUSubtitle>
+            Sök profiler, se vilka som är dolda från Upptäck och öppna rätt supportväg.
+          </WithUSubtitle>
+
+          <View style={styles.iconRow}>
+            <View style={[styles.bigIconWrap, styles.blueIconWrap]}>
+              <Text style={styles.bigIcon}>👥</Text>
+            </View>
+            <View style={styles.textCol}>
+              <Text style={styles.blockTitle}>Öppna användaröversikt</Text>
+              <Text style={styles.blockText}>
+                Adminprofiler syns inte i Upptäck, men admin kan hjälpa användare här.
+              </Text>
+            </View>
+          </View>
+
+          <WithUPrimaryButton
+            title="Öppna användare"
+            onPress={() => router.push('/admin/users')}
+            style={styles.actionButton}
+          />
+        </WithUCard>
 
         <WithUCard style={styles.mainCard}>
           <WithUSectionLabel>Kommun & effekt</WithUSectionLabel>
@@ -119,6 +141,10 @@ export default function AdminHomeScreen() {
         <WithUCard>
           <WithUSectionLabel>Snabböppna</WithUSectionLabel>
           <WithUTitle style={styles.cardTitle}>Direktlänkar</WithUTitle>
+
+          <Pressable style={styles.inlineLink} onPress={() => router.push('/admin/users')}>
+            <Text style={styles.inlineLinkText}>Gå till användare</Text>
+          </Pressable>
 
           <Pressable style={styles.inlineLink} onPress={() => router.push('/admin/reports')}>
             <Text style={styles.inlineLinkText}>Gå till rapporter</Text>
