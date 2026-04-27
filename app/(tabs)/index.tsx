@@ -25,6 +25,7 @@ import {
   WithUScreen,
   WithUTopBar,
 } from '../../src/components/withu/WithUPrimitives';
+import { ensureTrustAllowed } from '../../src/lib/trust';
 
 type FilterKey =
   | 'alla'
@@ -303,6 +304,9 @@ export default function HittaScreen() {
     if (!currentUserId || sending) return;
 
     try {
+      const allowed = await ensureTrustAllowed('match');
+      if (!allowed) return;
+
       setSending(profile.id);
 
       const { error: upsertError } = await supabase.from('matches').upsert(
@@ -370,6 +374,9 @@ export default function HittaScreen() {
     if (!currentUserId || sending) return;
 
     try {
+      const allowed = await ensureTrustAllowed('match');
+      if (!allowed) return;
+
       setSending(profile.id);
       const { error } = await supabase.from('matches').upsert(
         {

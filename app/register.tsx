@@ -19,6 +19,7 @@ export default function RegisterScreen() {
   const router = useRouter();
 
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -28,11 +29,12 @@ export default function RegisterScreen() {
   const canSubmit = useMemo(() => {
     return (
       email.trim().length > 0 &&
+      phone.trim().length > 6 &&
       password.length > 0 &&
       confirmPassword.length > 0 &&
       !loading
     );
-  }, [email, password, confirmPassword, loading]);
+  }, [email, phone, password, confirmPassword, loading]);
 
   const handleRegister = async () => {
     if (!canSubmit) return;
@@ -40,7 +42,7 @@ export default function RegisterScreen() {
     try {
       setLoading(true);
 
-      const result = await signUpWithEmail(email, password, confirmPassword);
+      const result = await signUpWithEmail(email, password, confirmPassword, phone);
 
       if (result.needsEmailConfirmation) {
         Alert.alert(
@@ -103,6 +105,21 @@ export default function RegisterScreen() {
               textContentType="emailAddress"
               editable={!loading}
               maxLength={120}
+            />
+
+            <Text style={styles.label}>Telefonnummer</Text>
+            <TextInput
+              style={styles.input}
+              value={phone}
+              onChangeText={setPhone}
+              placeholder="+46..."
+              placeholderTextColor="#7B8794"
+              keyboardType="phone-pad"
+              autoCapitalize="none"
+              autoCorrect={false}
+              textContentType="telephoneNumber"
+              editable={!loading}
+              maxLength={30}
             />
 
             <Text style={styles.label}>Lösenord</Text>

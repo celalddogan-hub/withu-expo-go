@@ -44,11 +44,13 @@ export async function signInWithEmail(email: string, password: string) {
 export async function signUpWithEmail(
   email: string,
   password: string,
-  confirmPassword: string
+  confirmPassword: string,
+  phone?: string
 ) {
   const normalizedEmail = normalizeEmail(email);
   const trimmedPassword = password.trim();
   const trimmedConfirmPassword = confirmPassword.trim();
+  const normalizedPhone = phone?.replace(/[^\d+]/g, '').trim() ?? '';
 
   if (!normalizedEmail) {
     throw new Error('Fyll i din e-postadress.');
@@ -56,6 +58,10 @@ export async function signUpWithEmail(
 
   if (!isValidEmail(normalizedEmail)) {
     throw new Error('Fyll i en giltig e-postadress.');
+  }
+
+  if (!normalizedPhone || normalizedPhone.length < 7) {
+    throw new Error('Fyll i ditt telefonnummer.');
   }
 
   if (!trimmedPassword) {
@@ -77,6 +83,11 @@ export async function signUpWithEmail(
   const { data, error } = await supabase.auth.signUp({
     email: normalizedEmail,
     password: trimmedPassword,
+    options: {
+      data: {
+        phone_number: normalizedPhone || null,
+      },
+    },
   });
 
   if (error) {

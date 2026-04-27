@@ -23,6 +23,7 @@ import { useRouter } from 'expo-router';
 import { supabase } from '../../src/lib/supabase';
 import { guardContentOrShowHelp } from '../../src/lib/crisisSafety';
 import { WithUAvatar, WithUScreen, WithUTopBar } from '../../src/components/withu/WithUPrimitives';
+import { ensureTrustAllowed } from '../../src/lib/trust';
 
 type FeedType = 'all' | 'activity' | 'photo' | 'event' | 'question';
 type ComposerType = Exclude<FeedType, 'all'>;
@@ -278,6 +279,9 @@ export default function FeedScreen() {
   };
 
   const pickImage = async () => {
+    const allowed = await ensureTrustAllowed('feed_post');
+    if (!allowed) return;
+
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
       Alert.alert('Bildbehörighet behövs', 'Tillåt bilder för att kunna lägga upp ett foto.');
@@ -315,6 +319,9 @@ export default function FeedScreen() {
 
   const createPost = async () => {
     if (!currentUserId || saving) return;
+    const allowed = await ensureTrustAllowed('feed_post');
+    if (!allowed) return;
+
     const text = composerText.trim();
 
     if (text.length < 3 && !selectedImage) {
@@ -491,6 +498,9 @@ export default function FeedScreen() {
 
   const toggleLike = async (post: FeedPost) => {
     if (!currentUserId) return;
+    const allowed = await ensureTrustAllowed('feed_interact');
+    if (!allowed) return;
+
     const liked = !!post.liked_by_me;
     updatePostState(post.id, {
       liked_by_me: !liked,
@@ -509,6 +519,9 @@ export default function FeedScreen() {
 
   const toggleJoin = async (post: FeedPost) => {
     if (!currentUserId) return;
+    const allowed = await ensureTrustAllowed('feed_interact');
+    if (!allowed) return;
+
     const joined = !!post.joined_by_me;
     updatePostState(post.id, {
       joined_by_me: !joined,
@@ -527,6 +540,9 @@ export default function FeedScreen() {
 
   const submitComment = async () => {
     if (!commentPost || !currentUserId || saving) return;
+    const allowed = await ensureTrustAllowed('feed_interact');
+    if (!allowed) return;
+
     const text = commentText.trim();
     if (!text) return;
 
@@ -700,7 +716,9 @@ export default function FeedScreen() {
             </View>
 
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.nowRail}>
-              <Pressable style={[styles.nowCard, styles.nowCardPrimary]} onPress={() => setComposerOpen(true)}>
+              <Pressable style={[styles.nowCard, styles.nowCardPrimary]} onPress={async () => {
+                if (await ensureTrustAllowed('feed_post')) setComposerOpen(true);
+              }}>
                 <Text style={styles.nowEmoji}>＋</Text>
                 <Text style={[styles.nowTitle, styles.nowTitleLight]}>Lägg upp</Text>
                 <Text style={[styles.nowSub, styles.nowSubLight]}>bild eller aktivitet</Text>
@@ -722,7 +740,9 @@ export default function FeedScreen() {
               </Pressable>
             </ScrollView>
 
-            <Pressable style={styles.composerCard} onPress={() => setComposerOpen(true)}>
+            <Pressable style={styles.composerCard} onPress={async () => {
+              if (await ensureTrustAllowed('feed_post')) setComposerOpen(true);
+            }}>
               <WithUAvatar emoji="🙂" size={44} />
               <View style={styles.composerTextWrap}>
                 <Text style={styles.composerTitle}>Lägg upp för dina vänner</Text>

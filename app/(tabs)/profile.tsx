@@ -42,6 +42,14 @@ type ProfileRow = {
   max_age: number | null;
   activities: string[] | null;
   is_bankid_verified: boolean | null;
+  email_verified: boolean | null;
+  phone_verified: boolean | null;
+  bankid_verified: boolean | null;
+  verification_level: string | null;
+  trust_score: number | null;
+  is_limited: boolean | null;
+  limited_until: string | null;
+  accepted_rules_at: string | null;
 };
 
 type MatchRow = {
@@ -159,6 +167,13 @@ export default function ProfileScreen() {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [avatarEmoji, setAvatarEmoji] = useState('🙂');
   const [isBankIdVerified, setIsBankIdVerified] = useState(false);
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [phoneVerified, setPhoneVerified] = useState(false);
+  const [verificationLevel, setVerificationLevel] = useState('new');
+  const [trustScore, setTrustScore] = useState(0);
+  const [isLimited, setIsLimited] = useState(true);
+  const [limitedUntil, setLimitedUntil] = useState<string | null>(null);
+  const [acceptedRulesAt, setAcceptedRulesAt] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [friends, setFriends] = useState<FriendProfile[]>([]);
 
@@ -181,6 +196,9 @@ export default function ProfileScreen() {
   const publicName = name.trim() || 'Din profil';
   const publicPlace = [city.trim(), country.trim()].filter(Boolean).join(', ') || 'Lägg till stad';
   const visibleActivities = selectedActivities.slice(0, 10);
+  const rulesAccepted = !!acceptedRulesAt;
+  const limitedUntilTime = limitedUntil ? new Date(limitedUntil).getTime() : 0;
+  const limitedActive = isLimited && (!limitedUntil || limitedUntilTime > Date.now());
 
   const loadFriends = useCallback(async (userId: string) => {
     const [{ data: outgoing, error: outgoingError }, { data: incoming, error: incomingError }] =
@@ -237,7 +255,7 @@ export default function ProfileScreen() {
           supabase
             .from('profiles')
             .select(
-              'id, name, city, country, age, bio, avatar_url, avatar_emoji, min_age, max_age, activities, is_bankid_verified'
+              'id, name, city, country, age, bio, avatar_url, avatar_emoji, min_age, max_age, activities, is_bankid_verified, email_verified, phone_verified, bankid_verified, verification_level, trust_score, is_limited, limited_until, accepted_rules_at'
             )
             .eq('id', authData.user.id)
             .maybeSingle(),
@@ -261,7 +279,14 @@ export default function ProfileScreen() {
         setMinAge(profile.min_age ? String(profile.min_age) : DEFAULT_MIN_AGE);
         setMaxAge(profile.max_age ? String(profile.max_age) : DEFAULT_MAX_AGE);
         setSelectedActivities(profile.activities ?? []);
-        setIsBankIdVerified(!!profile.is_bankid_verified);
+        setIsBankIdVerified(!!profile.is_bankid_verified || !!profile.bankid_verified);
+        setEmailVerified(!!profile.email_verified || !!authData.user.email_confirmed_at);
+        setPhoneVerified(!!profile.phone_verified);
+        setVerificationLevel(profile.verification_level ?? 'new');
+        setTrustScore(profile.trust_score ?? 0);
+        setIsLimited(profile.is_limited ?? true);
+        setLimitedUntil(profile.limited_until ?? null);
+        setAcceptedRulesAt(profile.accepted_rules_at ?? null);
       }
 
       await loadFriends(authData.user.id);
@@ -436,6 +461,8 @@ export default function ProfileScreen() {
           max_age: maxAgeNumber,
           activities: selectedActivities,
           is_profile_complete: true,
+          email_verified: !!authData.user.email_confirmed_at,
+          verification_level: authData.user.email_confirmed_at ? 'email' : 'new',
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'id' }
@@ -448,6 +475,33 @@ export default function ProfileScreen() {
       Alert.alert('Klart', 'Profilen är sparad.');
     } catch (error: any) {
       Alert.alert('Kunde inte spara', error?.message ?? 'Något gick fel.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function acceptSafetyRules() {
+    if (!currentUserId || saving) return;
+
+    try {
+      setSaving(true);
+      const now = new Date().toISOString();
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          accepted_rules_at: now,
+          email_verified: emailVerified,
+          verification_level: emailVerified ? 'email' : 'new',
+          updated_at: now,
+        })
+        .eq('id', currentUserId);
+
+      if (error) throw error;
+      setAcceptedRulesAt(now);
+      setVerificationLevel(emailVerified ? 'email' : 'new');
+      Alert.alert('Klart', 'Trygghetsreglerna är godkända. Nu kan du använda WithU mer tryggt.');
+    } catch (error: any) {
+      Alert.alert('Kunde inte spara', error?.message ?? 'Försök igen.');
     } finally {
       setSaving(false);
     }
@@ -535,6 +589,14 @@ export default function ProfileScreen() {
                 color={isBankIdVerified ? '#1C5E52' : '#7A8499'}
               />
               <Text style={styles.badgeText}>{isBankIdVerified ? 'Verifierad' : 'Ej verifierad'}</Text>
+            </View>
+            <View style={styles.badge}>
+              <Ionicons
+                name={rulesAccepted ? 'shield-checkmark-outline' : 'alert-circle-outline'}
+                size={15}
+                color={rulesAccepted ? '#1C5E52' : '#E05C4B'}
+              />
+              <Text style={styles.badgeText}>{rulesAccepted ? 'Regler godkända' : 'Regler saknas'}</Text>
             </View>
           </View>
 
@@ -742,6 +804,24 @@ export default function ProfileScreen() {
           <Text style={styles.bodyText}>
             Din exakta plats visas inte i profilen. Personer ser stad, aktiviteter och profilbild om du själv lägger upp en.
           </Text>
+          <View style={styles.trustBox}>
+            <Text style={styles.trustTitle}>Kontostatus: {verificationLevel}</Text>
+            <Text style={styles.trustText}>
+              E-post {emailVerified ? 'godkänd' : 'saknas'} · Telefon {phoneVerified ? 'godkänd' : 'kommer senare'} · Trust {trustScore}/100
+            </Text>
+            {limitedActive ? (
+              <Text style={styles.trustWarning}>
+                Nytt konto är begränsat i början. Det stoppar spam och falska registreringar.
+              </Text>
+            ) : null}
+            {!rulesAccepted ? (
+              <TouchableOpacity style={styles.rulesButton} onPress={acceptSafetyRules} disabled={saving}>
+                <Text style={styles.rulesButtonText}>Godkänn trygghetsregler</Text>
+              </TouchableOpacity>
+            ) : (
+              <Text style={styles.rulesOk}>Trygghetsregler godkända.</Text>
+            )}
+          </View>
           <View style={styles.accountActions}>
             <TouchableOpacity style={styles.neutralButton} onPress={logout}>
               <Text style={styles.neutralButtonText}>Logga ut</Text>
@@ -1329,6 +1409,52 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 10,
     marginTop: 16,
+  },
+  trustBox: {
+    marginTop: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#B8DDD5',
+    backgroundColor: '#EAF6F2',
+    padding: 14,
+  },
+  trustTitle: {
+    color: '#0F1E38',
+    fontSize: 16,
+    fontWeight: '900',
+    marginBottom: 5,
+  },
+  trustText: {
+    color: '#39506C',
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 19,
+  },
+  trustWarning: {
+    color: '#8F2D0A',
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 18,
+    marginTop: 8,
+  },
+  rulesButton: {
+    minHeight: 46,
+    borderRadius: 15,
+    backgroundColor: '#1C5E52',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 12,
+  },
+  rulesButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  rulesOk: {
+    color: '#1C5E52',
+    fontSize: 13,
+    fontWeight: '900',
+    marginTop: 10,
   },
   neutralButton: {
     flex: 1,
