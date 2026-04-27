@@ -156,6 +156,9 @@ export default function FeedScreen() {
   const [selectedImage, setSelectedImage] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [commentPost, setCommentPost] = useState<FeedPost | null>(null);
   const [commentText, setCommentText] = useState('');
+  const [editingPost, setEditingPost] = useState<FeedPost | null>(null);
+  const [editText, setEditText] = useState('');
+  const [editActivityTitle, setEditActivityTitle] = useState('');
   const [saving, setSaving] = useState(false);
 
   const filteredPosts = useMemo(
@@ -351,6 +354,86 @@ export default function FeedScreen() {
     setPosts((current) => current.map((post) => (post.id === postId ? { ...post, ...patch } : post)));
   };
 
+  const openEditPost = (post: FeedPost) => {
+    setEditingPost(post);
+    setEditText(post.content || '');
+    setEditActivityTitle(post.activity_title || '');
+  };
+
+  const submitEditPost = async () => {
+    if (!editingPost || !currentUserId || saving) return;
+    const text = editText.trim();
+    const title = editActivityTitle.trim();
+
+    if (text.length < 3 && !title) {
+      Alert.alert('Skriv lite mer', 'Inlägget behöver text eller en aktivitetstitel.');
+      return;
+    }
+
+    const isSafe = await guardContentOrShowHelp({
+      text: `${title} ${text}`,
+      reporterId: currentUserId,
+      router,
+      surface: 'feed',
+    });
+    if (!isSafe) return;
+
+    try {
+      setSaving(true);
+      const { error } = await supabase
+        .from('posts')
+        .update({
+          content: text || title,
+          activity_title: title || null,
+        })
+        .eq('id', editingPost.id)
+        .eq('user_id', currentUserId);
+
+      if (error) throw error;
+
+      updatePostState(editingPost.id, {
+        content: text || title,
+        activity_title: title || null,
+      });
+      setEditingPost(null);
+      setEditText('');
+      setEditActivityTitle('');
+    } catch (error: any) {
+      Alert.alert('Kunde inte uppdatera', error?.message || 'Försök igen.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteOwnPost = (post: FeedPost) => {
+    if (!currentUserId || saving) return;
+
+    Alert.alert('Ta bort inlägg?', 'Inlägget försvinner från flödet.', [
+      { text: 'Avbryt', style: 'cancel' },
+      {
+        text: 'Ta bort',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            setSaving(true);
+            const { error } = await supabase
+              .from('posts')
+              .update({ is_active: false })
+              .eq('id', post.id)
+              .eq('user_id', currentUserId);
+
+            if (error) throw error;
+            setPosts((current) => current.filter((item) => item.id !== post.id));
+          } catch (error: any) {
+            Alert.alert('Kunde inte ta bort', error?.message || 'Försök igen.');
+          } finally {
+            setSaving(false);
+          }
+        },
+      },
+    ]);
+  };
+
   const toggleLike = async (post: FeedPost) => {
     if (!currentUserId) return;
     const liked = !!post.liked_by_me;
@@ -429,6 +512,7 @@ export default function FeedScreen() {
     const meta = TYPE_META[item.type] || TYPE_META.activity;
     const imageUrl = item.image_url;
     const linkUrl = firstUrl(item.content);
+    const isOwnPost = item.user_id === currentUserId;
 
     return (
       <View style={styles.postCard}>
@@ -485,6 +569,19 @@ export default function FeedScreen() {
             </View>
             <Ionicons name={item.joined_by_me ? 'checkmark-circle' : 'add-circle-outline'} size={26} color={meta.color} />
           </Pressable>
+        ) : null}
+
+        {isOwnPost ? (
+          <View style={styles.ownerActions}>
+            <Pressable style={styles.ownerActionButton} onPress={() => openEditPost(item)} disabled={saving}>
+              <Ionicons name="create-outline" size={17} color="#1C5E52" />
+              <Text style={styles.ownerActionText}>Redigera</Text>
+            </Pressable>
+            <Pressable style={[styles.ownerActionButton, styles.ownerDeleteButton]} onPress={() => deleteOwnPost(item)} disabled={saving}>
+              <Ionicons name="trash-outline" size={17} color="#B42318" />
+              <Text style={[styles.ownerActionText, styles.ownerDeleteText]}>Ta bort</Text>
+            </Pressable>
+          </View>
         ) : null}
 
         <View style={styles.postFooter}>
@@ -770,6 +867,54 @@ export default function FeedScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <Modal visible={!!editingPost} animationType="slide" onRequestClose={() => setEditingPost(null)}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}
+          style={styles.fullComposer}
+        >
+          <View style={styles.composerHeader}>
+            <Pressable onPress={() => setEditingPost(null)} style={styles.headerIconButton}>
+              <Ionicons name="close" size={24} color="#0F1E38" />
+            </Pressable>
+            <Text style={styles.modalTitle}>Redigera inlägg</Text>
+            <Pressable style={[styles.headerPublish, saving && styles.publishButtonDisabled]} onPress={submitEditPost} disabled={saving}>
+              <Text style={styles.headerPublishText}>{saving ? '...' : 'Spara'}</Text>
+            </Pressable>
+          </View>
+
+          <ScrollView
+            contentContainerStyle={styles.fullComposerContent}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            showsVerticalScrollIndicator={false}
+          >
+            {(editingPost?.type === 'activity' || editingPost?.type === 'event') && (
+              <TextInput
+                value={editActivityTitle}
+                onChangeText={setEditActivityTitle}
+                placeholder="Titel"
+                placeholderTextColor="#8B95AA"
+                style={styles.titleInput}
+                maxLength={80}
+              />
+            )}
+
+            <TextInput
+              value={editText}
+              onChangeText={setEditText}
+              placeholder="Skriv text..."
+              placeholderTextColor="#8B95AA"
+              style={styles.composerInput}
+              multiline
+              maxLength={500}
+              autoFocus
+            />
+            <Text style={styles.composerHint}>{500 - editText.length} tecken kvar</Text>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
     </WithUScreen>
   );
 }
@@ -911,6 +1056,23 @@ const styles = StyleSheet.create({
   activityInfo: { flex: 1 },
   activityTitle: { color: '#0F1E38', fontSize: 14, fontWeight: '900' },
   activitySub: { color: '#7A8399', fontSize: 11, fontWeight: '700', marginTop: 3 },
+  ownerActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
+  },
+  ownerActionButton: {
+    minHeight: 38,
+    borderRadius: 999,
+    backgroundColor: '#EAF5F1',
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  ownerActionText: { color: '#1C5E52', fontSize: 12, fontWeight: '900' },
+  ownerDeleteButton: { backgroundColor: '#FEF3F2' },
+  ownerDeleteText: { color: '#B42318' },
   postFooter: { flexDirection: 'row', gap: 8, borderTopWidth: 1, borderTopColor: '#EEF1F6', paddingTop: 10 },
   footerButton: {
     minHeight: 38,
