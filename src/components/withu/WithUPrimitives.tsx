@@ -1,5 +1,6 @@
 import React, { ReactNode } from 'react';
 import {
+  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -38,6 +39,7 @@ type BadgeProps = {
 
 type AvatarProps = {
   emoji?: string;
+  imageUrl?: string | null;
   size?: number;
   online?: boolean;
   style?: ViewStyle | ViewStyle[];
@@ -207,6 +209,7 @@ export function WithUBadge({
 
 export function WithUAvatar({
   emoji = '🙂',
+  imageUrl,
   size = 56,
   online = false,
   style,
@@ -223,7 +226,11 @@ export function WithUAvatar({
         style,
       ]}
     >
-      <Text style={{ fontSize: size * 0.46 }}>{emoji}</Text>
+      {imageUrl ? (
+        <Image source={{ uri: imageUrl }} style={{ width: size, height: size, borderRadius: size / 2 }} />
+      ) : (
+        <Text style={{ fontSize: size * 0.46 }}>{emoji}</Text>
+      )}
 
       {online ? (
         <View

@@ -45,6 +45,7 @@ type ProfileRow = {
   id: string;
   name: string | null;
   city: string | null;
+  avatar_url: string | null;
   avatar_emoji: string | null;
   is_bankid_verified: boolean | null;
 };
@@ -624,7 +625,7 @@ export default function ChatConversationScreen() {
 
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')
-        .select('id, name, city, avatar_emoji, is_bankid_verified')
+        .select('id, name, city, avatar_url, avatar_emoji, is_bankid_verified')
         .eq('id', otherId)
         .maybeSingle();
 
@@ -938,7 +939,7 @@ export default function ChatConversationScreen() {
 
             <Pressable style={styles.headerIdentity} onPress={openOtherProfile}>
               <View style={styles.headerAvatarWrap}>
-                <WithUAvatar emoji={otherEmoji} size={44} />
+                <WithUAvatar emoji={otherEmoji} imageUrl={otherProfile?.avatar_url} size={44} />
                 <View style={styles.onlineDot} />
               </View>
 
@@ -993,7 +994,7 @@ export default function ChatConversationScreen() {
           }}
           ListEmptyComponent={
             <View style={styles.emptyWrap}>
-              <WithUAvatar emoji={otherEmoji} size={58} />
+              <WithUAvatar emoji={otherEmoji} imageUrl={otherProfile?.avatar_url} size={58} />
               <Text style={styles.emptyTitle}>{otherProfile?.name || 'Chatt'}</Text>
               <Text style={styles.emptyText}>Skriv första meddelandet här nedanför.</Text>
             </View>

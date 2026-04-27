@@ -45,6 +45,7 @@ type FeedPost = {
   profiles?: {
     name: string | null;
     city: string | null;
+    avatar_url: string | null;
     avatar_emoji: string | null;
     is_bankid_verified: boolean | null;
   } | null;
@@ -180,7 +181,7 @@ export default function FeedScreen() {
       const { data, error } = await supabase
         .from('posts')
         .select(
-          'id, user_id, type, content, area, activity_icon, activity_title, image_path, like_count, comment_count, participant_count, created_at, profiles:profiles!posts_user_id_fkey(name, city, avatar_emoji, is_bankid_verified)'
+          'id, user_id, type, content, area, activity_icon, activity_title, image_path, like_count, comment_count, participant_count, created_at, profiles:profiles!posts_user_id_fkey(name, city, avatar_url, avatar_emoji, is_bankid_verified)'
         )
         .eq('is_active', true)
         .eq('moderation_status', 'visible')
@@ -432,7 +433,7 @@ export default function FeedScreen() {
     return (
       <View style={styles.postCard}>
         <Pressable style={styles.postHeader} onPress={() => openProfile(item.user_id)}>
-          <WithUAvatar emoji={item.profiles?.avatar_emoji || meta.icon} size={48} />
+          <WithUAvatar emoji={item.profiles?.avatar_emoji || meta.icon} imageUrl={item.profiles?.avatar_url} size={48} />
           <View style={styles.postHeaderText}>
             <Text style={styles.postName}>
               {firstName(item.profiles?.name)}

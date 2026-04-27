@@ -48,6 +48,7 @@ type ProfileRow = {
   age: number | null;
   city: string | null;
   activities: string[] | null;
+  avatar_url: string | null;
   avatar_emoji: string | null;
   is_bankid_verified: boolean | null;
   bio: string | null;
@@ -237,7 +238,7 @@ export default function HittaScreen() {
         loadBlockedIds(user.id),
         supabase
           .from('profiles')
-          .select('id, name, age, city, activities, avatar_emoji, is_bankid_verified, bio')
+          .select('id, name, age, city, activities, avatar_url, avatar_emoji, is_bankid_verified, bio')
           .neq('id', user.id)
           .eq('is_profile_complete', true)
           .limit(30),
@@ -505,7 +506,7 @@ export default function HittaScreen() {
 
                     <View style={styles.profileTop}>
                       <View style={styles.avatarBubble}>
-                        <Text style={styles.avatarText}>{avatar}</Text>
+                        <WithUAvatar emoji={avatar} imageUrl={profile.avatar_url} size={62} />
                       </View>
                       <View style={styles.profileInfo}>
                         <Text style={styles.profileName}>
@@ -724,6 +725,7 @@ const styles = StyleSheet.create({
     backgroundColor: withuColors.tealBg,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
   avatarText: { fontSize: 30 },
   profileInfo: { flex: 1 },

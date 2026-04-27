@@ -39,6 +39,7 @@ type ProfileRow = {
   age: number | null;
   city: string | null;
   activities: string[] | null;
+  avatar_url: string | null;
   avatar_emoji: string | null;
   is_bankid_verified: boolean | null;
 };
@@ -247,7 +248,7 @@ const ChatRow = memo(function ChatRow({
         onPress={() => targetUserId && onOpenProfile(targetUserId)}
         disabled={!targetUserId}
       >
-        <WithUAvatar emoji={avatarEmoji} size={64} />
+        <WithUAvatar emoji={avatarEmoji} imageUrl={profile?.avatar_url} size={64} />
       </Pressable>
 
       <View style={styles.centerCol}>
@@ -445,7 +446,7 @@ export default function ChatListScreen() {
       ] = await Promise.all([
         supabase
           .from('profiles')
-          .select('id, name, age, city, activities, avatar_emoji, is_bankid_verified')
+          .select('id, name, age, city, activities, avatar_url, avatar_emoji, is_bankid_verified')
           .in('id', targetIds),
         supabase
           .from('messages')

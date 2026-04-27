@@ -39,6 +39,7 @@ type ProfileRow = {
   age: number | null;
   city: string | null;
   activities: string[] | null;
+  avatar_url: string | null;
   avatar_emoji: string | null;
   is_bankid_verified: boolean | null;
   bio: string | null;
@@ -183,7 +184,7 @@ const MatchRowCard = memo(function MatchRowCard({
         onPress={() => targetUserId && onOpenProfile(targetUserId)}
         disabled={!targetUserId}
       >
-        <WithUAvatar emoji={avatarEmoji} size={74} />
+        <WithUAvatar emoji={avatarEmoji} imageUrl={profile?.avatar_url} size={74} />
       </Pressable>
 
       <View style={styles.centerCol}>
@@ -343,7 +344,7 @@ export default function MatchesScreen() {
         supabase
           .from('profiles')
           .select(
-            'id, name, age, city, activities, avatar_emoji, is_bankid_verified, bio'
+            'id, name, age, city, activities, avatar_url, avatar_emoji, is_bankid_verified, bio'
           )
           .in('id', targetIds),
         supabase

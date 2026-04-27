@@ -44,6 +44,7 @@ type ProfileRow = {
   age: number | null;
   city: string | null;
   activities: string[] | null;
+  avatar_url: string | null;
   avatar_emoji: string | null;
   is_bankid_verified: boolean | null;
 };
@@ -388,7 +389,7 @@ export default function ChatDetailScreen() {
 
         const { data: profileData, error: profileError } = await supabase
           .from('profiles')
-          .select('id, name, age, city, activities, avatar_emoji, is_bankid_verified')
+          .select('id, name, age, city, activities, avatar_url, avatar_emoji, is_bankid_verified')
           .eq('id', otherUserId)
           .maybeSingle();
 
@@ -1093,7 +1094,11 @@ export default function ChatDetailScreen() {
         <View style={styles.headerCenter}>
           <View style={styles.headerIdentityRow}>
             <View style={styles.headerAvatarShell}>
-              <Text style={styles.headerAvatarEmoji}>{headerEmoji}</Text>
+              {otherProfile?.avatar_url ? (
+                <Image source={{ uri: otherProfile.avatar_url }} style={styles.headerAvatarImage} />
+              ) : (
+                <Text style={styles.headerAvatarEmoji}>{headerEmoji}</Text>
+              )}
             </View>
 
             <View style={styles.headerTextWrap}>
@@ -1348,7 +1353,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
+    overflow: 'hidden',
   },
+  headerAvatarImage: { width: 58, height: 58, borderRadius: 29 },
   headerAvatarEmoji: {
     fontSize: 28,
   },
