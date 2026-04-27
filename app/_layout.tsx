@@ -31,10 +31,15 @@ function AuthGuard({
       segments[0] === 'forgot-password' ||
       segments[0] === 'reset-password' ||
       segments[0] === 'verify';
+    const shouldLeaveAuthScreen =
+      segments[0] === 'login' ||
+      segments[0] === 'register' ||
+      segments[0] === 'forgot-password' ||
+      segments[0] === 'verify';
 
     if (!session && !inAuthScreen) {
       router.replace('/login');
-    } else if (session && inAuthScreen) {
+    } else if (session && shouldLeaveAuthScreen) {
       router.replace('/(tabs)');
     }
   }, [session, loading, segments, router]);
@@ -43,6 +48,7 @@ function AuthGuard({
 }
 
 export default function RootLayout() {
+  const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -54,15 +60,19 @@ export default function RootLayout() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
       setLoading(false);
+
+      if (event === 'PASSWORD_RECOVERY') {
+        router.replace('/reset-password');
+      }
     });
 
     return () => {
       subscription.unsubscribe();
     };
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     let cleanup: void | (() => void);
