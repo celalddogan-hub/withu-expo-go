@@ -100,6 +100,18 @@ function normalizeUrl(url: string) {
   return url.toLowerCase().startsWith('http') ? url : `https://${url}`;
 }
 
+function firstUrl(text: string) {
+  return text.match(URL_PATTERN)?.[0] ?? null;
+}
+
+function urlHost(url: string) {
+  try {
+    return new URL(normalizeUrl(url)).hostname.replace(/^www\./, '');
+  } catch {
+    return url.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+  }
+}
+
 function renderLinkedText(text: string) {
   const parts = text.split(URL_PATTERN);
 
@@ -415,6 +427,7 @@ export default function FeedScreen() {
   const renderPost = ({ item }: { item: FeedPost }) => {
     const meta = TYPE_META[item.type] || TYPE_META.activity;
     const imageUrl = item.image_url;
+    const linkUrl = firstUrl(item.content);
 
     return (
       <View style={styles.postCard}>
@@ -440,6 +453,26 @@ export default function FeedScreen() {
 
         <Text style={styles.postText}>{renderLinkedText(item.content)}</Text>
 
+        {linkUrl ? (
+          <Pressable
+            style={styles.linkCard}
+            onPress={() => Linking.openURL(normalizeUrl(linkUrl)).catch(() => Alert.alert('Kunde inte öppna länk'))}
+          >
+            <View style={styles.linkIcon}>
+              <Ionicons name="link-outline" size={22} color="#1C5E52" />
+            </View>
+            <View style={styles.linkInfo}>
+              <Text style={styles.linkTitle} numberOfLines={1}>
+                {urlHost(linkUrl)}
+              </Text>
+              <Text style={styles.linkSub} numberOfLines={1}>
+                Tryck för att öppna länken
+              </Text>
+            </View>
+            <Ionicons name="open-outline" size={20} color="#7A8399" />
+          </Pressable>
+        ) : null}
+
         {item.activity_title ? (
           <Pressable style={[styles.activityBox, { borderColor: meta.color }]} onPress={() => toggleJoin(item)}>
             <Text style={styles.activityIcon}>{item.activity_icon || meta.icon}</Text>
@@ -456,19 +489,18 @@ export default function FeedScreen() {
         <View style={styles.postFooter}>
           <Pressable style={[styles.footerButton, item.liked_by_me && styles.footerButtonActive]} onPress={() => toggleLike(item)}>
             <Ionicons name={item.liked_by_me ? 'heart' : 'heart-outline'} size={22} color={item.liked_by_me ? '#E05C4B' : '#5C6780'} />
-            <Text style={[styles.footerText, item.liked_by_me && styles.footerTextActive]}>{item.like_count ?? 0}</Text>
+            <Text style={[styles.footerText, item.liked_by_me && styles.footerTextActive]}>Gilla {item.like_count ?? 0}</Text>
           </Pressable>
           <Pressable style={styles.footerButton} onPress={() => setCommentPost(item)}>
             <Ionicons name="chatbubble-ellipses-outline" size={21} color="#5C6780" />
-            <Text style={styles.footerText}>{item.comment_count ?? 0}</Text>
+            <Text style={styles.footerText}>Svara {item.comment_count ?? 0}</Text>
           </Pressable>
           <Pressable style={[styles.footerButton, item.joined_by_me && styles.footerJoinActive]} onPress={() => toggleJoin(item)}>
             <Ionicons name={item.joined_by_me ? 'hand-left' : 'hand-left-outline'} size={21} color={item.joined_by_me ? '#1C5E52' : '#5C6780'} />
-            <Text style={[styles.footerText, item.joined_by_me && styles.footerJoinText]}>{item.participant_count ?? 0}</Text>
+            <Text style={[styles.footerText, item.joined_by_me && styles.footerJoinText]}>Jag med {item.participant_count ?? 0}</Text>
           </Pressable>
-          <Pressable style={styles.footerButton} onPress={() => openProfile(item.user_id)}>
+          <Pressable style={[styles.footerButton, styles.profileFooterButton]} onPress={() => openProfile(item.user_id)}>
             <Ionicons name="person-circle-outline" size={22} color="#5C6780" />
-            <Text style={styles.footerText}>Profil</Text>
           </Pressable>
         </View>
       </View>
@@ -506,6 +538,29 @@ export default function FeedScreen() {
                 Bilder, aktiviteter, frågor och träffar visas för dina trygga kontakter.
               </Text>
             </View>
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.nowRail}>
+              <Pressable style={[styles.nowCard, styles.nowCardPrimary]} onPress={() => setComposerOpen(true)}>
+                <Text style={styles.nowEmoji}>＋</Text>
+                <Text style={[styles.nowTitle, styles.nowTitleLight]}>Lägg upp</Text>
+                <Text style={[styles.nowSub, styles.nowSubLight]}>bild eller aktivitet</Text>
+              </Pressable>
+              <Pressable style={styles.nowCard} onPress={() => setActiveFilter('activity')}>
+                <Text style={styles.nowEmoji}>☕</Text>
+                <Text style={styles.nowTitle}>Aktiviteter</Text>
+                <Text style={styles.nowSub}>se vem som vill ses</Text>
+              </Pressable>
+              <Pressable style={styles.nowCard} onPress={() => router.push('/explore')}>
+                <Text style={styles.nowEmoji}>🌿</Text>
+                <Text style={styles.nowTitle}>Tankar</Text>
+                <Text style={styles.nowSub}>trygga ord</Text>
+              </Pressable>
+              <Pressable style={styles.nowCard} onPress={() => setActiveFilter('photo')}>
+                <Text style={styles.nowEmoji}>📷</Text>
+                <Text style={styles.nowTitle}>Bilder</Text>
+                <Text style={styles.nowSub}>från vänner</Text>
+              </Pressable>
+            </ScrollView>
 
             <Pressable style={styles.composerCard} onPress={() => setComposerOpen(true)}>
               <WithUAvatar emoji="🙂" size={44} />
@@ -677,6 +732,13 @@ export default function FeedScreen() {
                 <Ionicons name="calendar-outline" size={22} color="#1C5E52" />
                 <Text style={styles.toolText}>Träff</Text>
               </Pressable>
+              <Pressable
+                style={styles.toolButton}
+                onPress={() => setComposerText((current) => (current.trim() ? current : 'https://'))}
+              >
+                <Ionicons name="link-outline" size={22} color="#1C5E52" />
+                <Text style={styles.toolText}>Länk</Text>
+              </Pressable>
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -718,6 +780,23 @@ const styles = StyleSheet.create({
   heroBadge: { color: '#7ED3C4', fontSize: 11, fontWeight: '900', letterSpacing: 1, marginBottom: 8 },
   heroTitle: { color: '#FFFFFF', fontSize: 27, lineHeight: 33, fontWeight: '900', marginBottom: 8 },
   heroText: { color: 'rgba(255,255,255,0.78)', fontSize: 14, lineHeight: 22 },
+  nowRail: { gap: 10, paddingBottom: 12 },
+  nowCard: {
+    width: 132,
+    minHeight: 104,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#ECEEF4',
+    padding: 14,
+    justifyContent: 'space-between',
+  },
+  nowCardPrimary: { backgroundColor: '#0F1E38', borderColor: '#0F1E38' },
+  nowEmoji: { fontSize: 27, marginBottom: 8 },
+  nowTitle: { color: '#0F1E38', fontSize: 15, fontWeight: '900' },
+  nowSub: { color: '#7A8399', fontSize: 11, fontWeight: '700', marginTop: 3 },
+  nowTitleLight: { color: '#FFFFFF' },
+  nowSubLight: { color: 'rgba(255,255,255,0.72)' },
   composerCard: {
     minHeight: 76,
     backgroundColor: '#FFFFFF',
@@ -795,6 +874,29 @@ const styles = StyleSheet.create({
   postImage: { width: '100%', height: 220, borderRadius: 18, marginBottom: 12, backgroundColor: '#EEF1F6' },
   postText: { color: '#334155', fontSize: 16, lineHeight: 24, marginBottom: 12 },
   linkText: { color: '#1C5E52', fontWeight: '900', textDecorationLine: 'underline' },
+  linkCard: {
+    minHeight: 68,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#B8DDD5',
+    backgroundColor: '#EAF5F1',
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  linkIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  linkInfo: { flex: 1, minWidth: 0 },
+  linkTitle: { color: '#0F1E38', fontSize: 14, fontWeight: '900' },
+  linkSub: { color: '#1C5E52', fontSize: 11, fontWeight: '700', marginTop: 2 },
   activityBox: {
     borderRadius: 16,
     borderWidth: 1.5,
@@ -820,6 +922,7 @@ const styles = StyleSheet.create({
   },
   footerButtonActive: { backgroundColor: '#FFF2F0' },
   footerJoinActive: { backgroundColor: '#EAF5F1' },
+  profileFooterButton: { width: 42, justifyContent: 'center', paddingHorizontal: 0 },
   footerText: { color: '#5C6780', fontSize: 13, fontWeight: '900' },
   footerTextActive: { color: '#E05C4B' },
   footerJoinText: { color: '#1C5E52' },
@@ -888,9 +991,10 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     marginBottom: 12,
   },
-  toolRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  toolRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 },
   toolButton: {
-    flex: 1,
+    flexBasis: '47%',
+    flexGrow: 1,
     minHeight: 52,
     borderRadius: 16,
     backgroundColor: '#EAF5F1',
