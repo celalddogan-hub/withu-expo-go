@@ -46,56 +46,66 @@ const ACTIVITY_CATEGORIES: Category[] = [
   {
     title: 'Fika & Samtal',
     emoji: '☕️',
-    items: ['Kafébesök', 'Lunch', 'Promenad', 'Bara prata'],
+    items: ['Kafébesök', 'Lunch', 'Middag', 'Bara prata', 'Promenad och prat', 'Picknick'],
   },
   {
     title: 'Gaming & Fritid',
     emoji: '🎮',
-    items: ['Datorspel', 'Brädspel', 'Rollspel', 'Escape room'],
+    items: ['Datorspel', 'Brädspel', 'Rollspel', 'Escape room', 'Kortspel', 'Sällskapsspel'],
   },
   {
-    title: 'Studier & Tandem',
+    title: 'Studier & Lärande',
     emoji: '📚',
-    items: ['Läxhjälp', 'Språkbyte', 'Studiecirkel', 'Pluggsällskap'],
+    items: ['Läxhjälp', 'Språkbyte', 'Pluggsällskap', 'Studiecirkel', 'Bokclub', 'Debatt'],
   },
   {
     title: 'Träning & Sport',
     emoji: '💪',
-    items: ['Löpning', 'Gym', 'Yoga', 'Padel', 'Cykling', 'Simning'],
+    items: ['Löpning', 'Gym', 'Yoga', 'Padel', 'Cykling', 'Simning', 'Fotboll', 'Vandring', 'Klättring', 'Tennis'],
   },
   {
     title: 'Musik & Kultur',
-    emoji: '🎸',
-    items: ['Konserter', 'Replokal', 'Teater'],
+    emoji: '🎵',
+    items: ['Konserter', 'Replokal', 'Teater', 'Bio', 'Museum', 'Konstutställning', 'Danslektion'],
   },
   {
     title: 'Kreativitet',
     emoji: '🎨',
-    items: ['Foto', 'Konst', 'Skrivande', 'Design', 'Hantverk'],
+    items: ['Foto', 'Konst & Målning', 'Skrivande', 'Design', 'Hantverk', 'Keramik', 'Sy & sticka'],
   },
   {
     title: 'Familj & Föräldrar',
-    emoji: '👨‍👩‍👧‍👦',
-    items: ['Lekpark', 'Föräldraträff', 'Barnaktiviteter'],
+    emoji: '👨‍👩‍👧',
+    items: ['Lekpark', 'Föräldraträff', 'Barnaktiviteter', 'Sandlådan', 'Babygrupp'],
   },
   {
-    title: 'Språk & Kultur',
+    title: 'Språk & Integration',
     emoji: '🌍',
-    items: ['Kulturutbyte', 'Integration', 'Språkcafé'],
+    items: ['Kulturutbyte', 'Språkcafé', 'Integration', 'Internationell matlagning', 'Konversationsträning'],
   },
   {
     title: 'Senior & Hembesök',
     emoji: '🧓',
-    items: ['Sällskap hemma', 'Promenad', 'Berättarstund'],
+    items: ['Sällskap hemma', 'Promenadkompis', 'Berättarstund', 'Kortspel hemma', 'Hjälp med teknik'],
   },
   {
-    title: 'Bara Prata',
+    title: 'Stöd & Samtal',
     emoji: '💬',
-    items: ['Telefonsamtal', 'Videosamtal', 'Anonymt stöd'],
+    items: ['Telefonsamtal', 'Videosamtal', 'Anonymt stöd', 'Krisstöd', 'Lyssna och prata'],
+  },
+  {
+    title: 'Natur & Friluftsliv',
+    emoji: '🌿',
+    items: ['Naturpromenader', 'Fågelskådning', 'Bärplockning', 'Fiske', 'Camping', 'Trädgård'],
+  },
+  {
+    title: 'Mat & Dryck',
+    emoji: '🍳',
+    items: ['Laga mat tillsammans', 'Baka', 'Vinprovning', 'Matmarknad', 'Provlaga recept'],
   },
 ];
 
-const MAX_ACTIVITIES = 15;
+const MAX_ACTIVITIES = 20;
 const DEFAULT_MIN_AGE = '18';
 const DEFAULT_MAX_AGE = '99';
 const DELETE_CONFIRM_TEXT = 'TA BORT';

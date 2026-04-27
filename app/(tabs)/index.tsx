@@ -26,7 +26,21 @@ import {
   WithUTopBar,
 } from '../../src/components/withu/WithUPrimitives';
 
-type FilterKey = 'alla' | 'prata' | 'fika' | 'promenad' | 'spela' | 'studera';
+type FilterKey =
+  | 'alla'
+  | 'prata'
+  | 'fika'
+  | 'gaming'
+  | 'studier'
+  | 'sport'
+  | 'kultur'
+  | 'kreativitet'
+  | 'familj'
+  | 'sprak'
+  | 'senior'
+  | 'stod'
+  | 'natur'
+  | 'mat';
 
 type ProfileRow = {
   id: string;
@@ -61,9 +75,17 @@ const FILTERS: { key: FilterKey; label: string }[] = [
   { key: 'alla', label: 'Alla' },
   { key: 'prata', label: 'Prata' },
   { key: 'fika', label: 'Fika' },
-  { key: 'promenad', label: 'Promenad' },
-  { key: 'spela', label: 'Spela' },
-  { key: 'studera', label: 'Studera' },
+  { key: 'gaming', label: 'Gaming' },
+  { key: 'studier', label: 'Studier' },
+  { key: 'sport', label: 'Sport' },
+  { key: 'kultur', label: 'Kultur' },
+  { key: 'kreativitet', label: 'Kreativt' },
+  { key: 'familj', label: 'Familj' },
+  { key: 'sprak', label: 'Språk' },
+  { key: 'senior', label: 'Senior' },
+  { key: 'stod', label: 'Stöd' },
+  { key: 'natur', label: 'Natur' },
+  { key: 'mat', label: 'Mat' },
 ];
 
 const QUICK_QUESTIONS = [
@@ -121,7 +143,22 @@ function profileMatchesFilter(profile: ProfileRow, filter: FilterKey, query: str
     );
   }
 
-  return searchable.includes(filter);
+  const filterKeywords: Record<Exclude<FilterKey, 'alla' | 'prata'>, string[]> = {
+    fika: ['fika', 'kafe', 'kaffe', 'lunch', 'middag', 'picknick', 'bara prata'],
+    gaming: ['gaming', 'datorspel', 'bradspel', 'rollspel', 'escape', 'kortspel', 'sallskapsspel', 'spela'],
+    studier: ['stud', 'laxhjalp', 'sprakbyte', 'pluggsallskap', 'studiecirkel', 'bokclub', 'debatt'],
+    sport: ['tran', 'sport', 'lopning', 'gym', 'yoga', 'padel', 'cykling', 'simning', 'fotboll', 'vandring', 'klattring', 'tennis'],
+    kultur: ['musik', 'kultur', 'konsert', 'replokal', 'teater', 'bio', 'museum', 'konstutstallning', 'dans'],
+    kreativitet: ['foto', 'konst', 'malning', 'skrivande', 'design', 'hantverk', 'keramik', 'sticka'],
+    familj: ['familj', 'foralder', 'lekpark', 'barn', 'sandlada', 'babygrupp'],
+    sprak: ['sprak', 'integration', 'kulturutbyte', 'sprakcafe', 'internationell', 'konversation'],
+    senior: ['senior', 'hembesok', 'sallskap hemma', 'promenadkompis', 'berattarstund', 'teknik'],
+    stod: ['stod', 'samtal', 'telefonsamtal', 'videosamtal', 'anonymt', 'krisstod', 'lyssna'],
+    natur: ['natur', 'friluft', 'naturpromenad', 'fagelskadning', 'barplockning', 'fiske', 'camping', 'tradgard'],
+    mat: ['mat', 'dryck', 'laga mat', 'baka', 'vinprovning', 'matmarknad', 'recept'],
+  };
+
+  return filterKeywords[filter].some((keyword) => searchable.includes(keyword));
 }
 
 async function loadBlockedIds(currentUserId: string) {
