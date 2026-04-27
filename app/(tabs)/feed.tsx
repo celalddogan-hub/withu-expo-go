@@ -27,6 +27,7 @@ import { WithUAvatar, WithUScreen, WithUTopBar } from '../../src/components/with
 type FeedType = 'all' | 'activity' | 'photo' | 'event' | 'question';
 type ComposerType = Exclude<FeedType, 'all'>;
 type Visibility = 'friends' | 'matches' | 'nearby';
+type ReportReasonKey = 'harassment' | 'threat' | 'hate' | 'spam' | 'self_harm' | 'other';
 
 type FeedPost = {
   id: string;
@@ -77,6 +78,15 @@ const VISIBILITY_OPTIONS: { key: Visibility; label: string; sub: string }[] = [
 ];
 
 const URL_PATTERN = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+
+const REPORT_REASONS: { key: ReportReasonKey; title: string; body: string }[] = [
+  { key: 'harassment', title: 'Mobbning eller trakasserier', body: 'Elakt, pressande eller kränkande innehåll.' },
+  { key: 'threat', title: 'Hot eller våld', body: 'Hot, våld eller farlig press.' },
+  { key: 'hate', title: 'Hat eller diskriminering', body: 'Hat mot grupp, religion, kön, ursprung eller liknande.' },
+  { key: 'spam', title: 'Spam eller reklam', body: 'Bluff, reklam, skadliga länkar eller upprepade inlägg.' },
+  { key: 'self_harm', title: 'Akut oro för person', body: 'Självskada, självmordstankar eller någon verkar vara i fara.' },
+  { key: 'other', title: 'Annat', body: 'Något känns fel och behöver granskas.' },
+];
 
 function firstName(name?: string | null) {
   return name?.trim().split(' ')[0] || 'Medlem';
@@ -159,6 +169,9 @@ export default function FeedScreen() {
   const [editingPost, setEditingPost] = useState<FeedPost | null>(null);
   const [editText, setEditText] = useState('');
   const [editActivityTitle, setEditActivityTitle] = useState('');
+  const [reportPost, setReportPost] = useState<FeedPost | null>(null);
+  const [reportReason, setReportReason] = useState<ReportReasonKey>('harassment');
+  const [reportDetails, setReportDetails] = useState('');
   const [saving, setSaving] = useState(false);
 
   const filteredPosts = useMemo(
@@ -434,6 +447,48 @@ export default function FeedScreen() {
     ]);
   };
 
+  const openReportPost = (post: FeedPost) => {
+    setReportPost(post);
+    setReportReason('harassment');
+    setReportDetails('');
+  };
+
+  const submitPostReport = async () => {
+    if (!reportPost || !currentUserId || saving) return;
+    const reason = REPORT_REASONS.find((item) => item.key === reportReason) ?? REPORT_REASONS[0];
+
+    try {
+      setSaving(true);
+      const { error } = await supabase.from('reports').insert({
+        reporter_id: currentUserId,
+        reported_user_id: reportPost.user_id,
+        reported_profile_id: reportPost.user_id,
+        target_user_id: reportPost.user_id,
+        source: 'feed_post',
+        reason: reason.title,
+        details: [
+          `Post-id: ${reportPost.id}`,
+          `Typ: ${reportPost.type}`,
+          `Text: ${reportPost.content}`,
+          reportDetails.trim() ? `Kommentar: ${reportDetails.trim()}` : null,
+        ]
+          .filter(Boolean)
+          .join('\n'),
+        status: 'open',
+      });
+
+      if (error) throw error;
+
+      setReportPost(null);
+      setReportDetails('');
+      Alert.alert('Rapport skickad', 'Tack. Admin granskar inlägget och tar bort det om det bryter mot tryggheten.');
+    } catch (error: any) {
+      Alert.alert('Kunde inte rapportera', error?.message || 'Försök igen om en stund.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const toggleLike = async (post: FeedPost) => {
     if (!currentUserId) return;
     const liked = !!post.liked_by_me;
@@ -582,7 +637,14 @@ export default function FeedScreen() {
               <Text style={[styles.ownerActionText, styles.ownerDeleteText]}>Ta bort</Text>
             </Pressable>
           </View>
-        ) : null}
+        ) : (
+          <View style={styles.ownerActions}>
+            <Pressable style={styles.reportButton} onPress={() => openReportPost(item)} disabled={saving}>
+              <Ionicons name="flag-outline" size={17} color="#B42318" />
+              <Text style={styles.reportButtonText}>Rapportera</Text>
+            </Pressable>
+          </View>
+        )}
 
         <View style={styles.postFooter}>
           <Pressable style={[styles.footerButton, item.liked_by_me && styles.footerButtonActive]} onPress={() => toggleLike(item)}>
@@ -868,6 +930,59 @@ export default function FeedScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
+      <Modal visible={!!reportPost} transparent animationType="fade" onRequestClose={() => setReportPost(null)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.commentBackdrop}>
+          <Pressable style={styles.commentShade} onPress={() => setReportPost(null)} />
+          <View style={styles.commentSheet}>
+            <Text style={styles.commentTitle}>Rapportera inlägg</Text>
+            <Text style={styles.reportIntro}>Välj varför du vill rapportera. Admin ser rapporten och kan agera.</Text>
+
+            <View style={styles.reportReasonList}>
+              {REPORT_REASONS.map((reason) => {
+                const selected = reportReason === reason.key;
+                return (
+                  <Pressable
+                    key={reason.key}
+                    style={[styles.reportReasonOption, selected && styles.reportReasonOptionActive]}
+                    onPress={() => setReportReason(reason.key)}
+                  >
+                    <View style={styles.reportReasonTextWrap}>
+                      <Text style={[styles.reportReasonTitle, selected && styles.reportReasonTitleActive]}>
+                        {reason.title}
+                      </Text>
+                      <Text style={styles.reportReasonBody}>{reason.body}</Text>
+                    </View>
+                    <Ionicons
+                      name={selected ? 'checkmark-circle' : 'ellipse-outline'}
+                      size={22}
+                      color={selected ? '#1C5E52' : '#9AA4B8'}
+                    />
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <TextInput
+              value={reportDetails}
+              onChangeText={setReportDetails}
+              placeholder="Skriv mer om du vill..."
+              placeholderTextColor="#8B95AA"
+              style={styles.commentInput}
+              multiline
+            />
+
+            <View style={styles.modalActions}>
+              <Pressable style={styles.cancelButton} onPress={() => setReportPost(null)} disabled={saving}>
+                <Text style={styles.cancelText}>Avbryt</Text>
+              </Pressable>
+              <Pressable style={[styles.reportSubmitButton, saving && styles.publishButtonDisabled]} onPress={submitPostReport} disabled={saving}>
+                <Text style={styles.publishText}>Skicka rapport</Text>
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
       <Modal visible={!!editingPost} animationType="slide" onRequestClose={() => setEditingPost(null)}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -1073,6 +1188,16 @@ const styles = StyleSheet.create({
   ownerActionText: { color: '#1C5E52', fontSize: 12, fontWeight: '900' },
   ownerDeleteButton: { backgroundColor: '#FEF3F2' },
   ownerDeleteText: { color: '#B42318' },
+  reportButton: {
+    minHeight: 38,
+    borderRadius: 999,
+    backgroundColor: '#FEF3F2',
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  reportButtonText: { color: '#B42318', fontSize: 12, fontWeight: '900' },
   postFooter: { flexDirection: 'row', gap: 8, borderTopWidth: 1, borderTopColor: '#EEF1F6', paddingTop: 10 },
   footerButton: {
     minHeight: 38,
@@ -1170,6 +1295,23 @@ const styles = StyleSheet.create({
   commentShade: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(15,30,56,0.5)' },
   commentSheet: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 16, paddingBottom: Platform.OS === 'ios' ? 28 : 16 },
   commentTitle: { color: '#0F1E38', fontSize: 22, fontWeight: '900', marginBottom: 10 },
+  reportIntro: { color: '#5C6780', fontSize: 13, lineHeight: 20, fontWeight: '700', marginBottom: 12 },
+  reportReasonList: { gap: 8, marginBottom: 12 },
+  reportReasonOption: {
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#DDE2EF',
+    backgroundColor: '#F8FAFC',
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  reportReasonOptionActive: { borderColor: '#1C5E52', backgroundColor: '#EAF5F1' },
+  reportReasonTextWrap: { flex: 1 },
+  reportReasonTitle: { color: '#0F1E38', fontSize: 14, fontWeight: '900' },
+  reportReasonTitleActive: { color: '#1C5E52' },
+  reportReasonBody: { color: '#7A8399', fontSize: 12, lineHeight: 18, fontWeight: '700', marginTop: 3 },
   commentInput: {
     minHeight: 96,
     maxHeight: 170,
@@ -1188,6 +1330,7 @@ const styles = StyleSheet.create({
   cancelButton: { flex: 1, minHeight: 50, borderRadius: 16, borderWidth: 1.5, borderColor: '#DDE2EF', alignItems: 'center', justifyContent: 'center' },
   cancelText: { color: '#0F1E38', fontSize: 14, fontWeight: '900' },
   publishButton: { flex: 1.2, minHeight: 50, borderRadius: 16, backgroundColor: '#1C5E52', alignItems: 'center', justifyContent: 'center' },
+  reportSubmitButton: { flex: 1.2, minHeight: 50, borderRadius: 16, backgroundColor: '#B42318', alignItems: 'center', justifyContent: 'center' },
   publishButtonDisabled: { opacity: 0.6 },
   publishText: { color: '#FFFFFF', fontSize: 14, fontWeight: '900' },
 });

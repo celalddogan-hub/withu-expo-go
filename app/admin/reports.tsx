@@ -71,6 +71,16 @@ function formatDate(value?: string | null) {
   });
 }
 
+function isReportVisibleInAdmin(report: ReportRow) {
+  const status = getNormalizedStatus(report.status);
+  if (status !== 'resolved' && status !== 'dismissed') return true;
+
+  const closedAt = new Date(report.updated_at || report.created_at || '').getTime();
+  if (!Number.isFinite(closedAt)) return true;
+
+  return Date.now() - closedAt < 60 * 24 * 60 * 60 * 1000;
+}
+
 function getNormalizedStatus(status?: string | null): 'open' | 'in_progress' | 'resolved' | 'dismissed' {
   if (status === 'resolved') return 'resolved';
   if (status === 'dismissed') return 'dismissed';
@@ -150,10 +160,12 @@ export default function AdminReportsScreen() {
 
       if (error) throw error;
 
-      const reports = ((data ?? []) as ReportRow[]).map((item) => ({
-        ...item,
-        status: getNormalizedStatus(item.status),
-      }));
+      const reports = ((data ?? []) as ReportRow[])
+        .filter(isReportVisibleInAdmin)
+        .map((item) => ({
+          ...item,
+          status: getNormalizedStatus(item.status),
+        }));
 
       if (reports.length === 0) {
         setItems([]);

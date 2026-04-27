@@ -13,6 +13,7 @@
     "**/*.tsx"
   ],
   "exclude": [
-    "supabase/functions/**"
+    "supabase/functions/**",
+    "_review_*"
   ]
 }
