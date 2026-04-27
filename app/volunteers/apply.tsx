@@ -39,6 +39,7 @@ type OwnProfileRow = {
   age: number | null;
   city: string | null;
   is_bankid_verified: boolean | null;
+  email_verified: boolean | null;
 };
 
 type VolunteerApplicationRow = {
@@ -191,7 +192,7 @@ export default function VolunteerApplyScreen() {
       ] = await Promise.all([
         supabase
           .from('profiles')
-          .select('id, name, age, city, is_bankid_verified')
+          .select('id, name, age, city, is_bankid_verified, email_verified')
           .eq('id', user.id)
           .maybeSingle(),
         supabase
@@ -280,7 +281,7 @@ export default function VolunteerApplyScreen() {
   const isEligible =
     !!ownProfile &&
     (ownProfile.age ?? 0) >= 18 &&
-    !!ownProfile.is_bankid_verified &&
+    (!!ownProfile.is_bankid_verified || !!ownProfile.email_verified) &&
     existingStatus !== 'approved';
 
   const toggleTag = (tag: string) => {
@@ -403,7 +404,7 @@ export default function VolunteerApplyScreen() {
 
   const validateBeforeSave = () => {
     if (!isEligible) {
-      Alert.alert('Kan inte ansöka', 'Du måste vara 18+ och BankID-verifierad.');
+      Alert.alert('Kan inte ansöka', 'Du måste vara 18+ och ha verifierad e-post. BankID kan läggas till senare.');
       return false;
     }
 
@@ -652,8 +653,8 @@ export default function VolunteerApplyScreen() {
               <WithUSectionLabel>Info</WithUSectionLabel>
               <WithUTitle style={styles.smallTitle}>Du kan inte ansöka ännu</WithUTitle>
               <WithUSubtitle>
-                Du måste vara minst 18 år och BankID-verifierad i din profil för att kunna skicka
-                en volontäransökan.
+                Du måste vara minst 18 år och ha verifierad e-post i din profil för att kunna skicka
+                en volontäransökan. BankID kan läggas till senare.
               </WithUSubtitle>
             </WithUCard>
           )}

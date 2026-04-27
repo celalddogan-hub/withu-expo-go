@@ -41,6 +41,14 @@ import {
   WithUTopBar,
 } from '../../src/components/withu/WithUPrimitives';
 
+type MyVolunteerApplicationRow = {
+  id: string;
+  status: 'pending' | 'approved' | 'rejected' | string | null;
+  role_sv: string | null;
+  submitted_at: string | null;
+  created_at: string | null;
+};
+
 function formatRemaining(activeUntil?: string | null, _tick?: number) {
   if (!activeUntil) return 'Aktiv nu';
 
@@ -87,6 +95,33 @@ function getSlotsLeft(volunteer: ActiveVolunteerNowRow) {
   return Math.max(0, max - pending);
 }
 
+function formatApplicationDate(value?: string | null) {
+  if (!value) return 'nyligen';
+
+  return new Intl.DateTimeFormat('sv-SE', {
+    day: 'numeric',
+    month: 'short',
+  }).format(new Date(value));
+}
+
+function getApplicationStatusTitle(status?: string | null) {
+  if (status === 'approved') return 'Godkänd volontär';
+  if (status === 'rejected') return 'Ansökan behöver ändras';
+  return 'Ansökan väntar';
+}
+
+function getApplicationStatusText(status?: string | null) {
+  if (status === 'approved') {
+    return 'Du kan nu synas som volontär när du aktiverar dig.';
+  }
+
+  if (status === 'rejected') {
+    return 'Öppna ansökan, läs svaret och skicka in igen när du är redo.';
+  }
+
+  return 'Admin granskar din ansökan. Du ser statusen här hela tiden.';
+}
+
 export default function VolunteersScreen() {
   const router = useRouter();
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -97,6 +132,7 @@ export default function VolunteersScreen() {
   const [currentUserId, setCurrentUserId] = useState('');
   const [volunteers, setVolunteers] = useState<ActiveVolunteerNowRow[]>([]);
   const [myRequests, setMyRequests] = useState<VolunteerSupportRequestRow[]>([]);
+  const [myApplication, setMyApplication] = useState<MyVolunteerApplicationRow | null>(null);
   const [selectedVolunteer, setSelectedVolunteer] = useState<ActiveVolunteerNowRow | null>(null);
   const [introMessage, setIntroMessage] = useState('');
   const [errorText, setErrorText] = useState('');
@@ -119,16 +155,27 @@ export default function VolunteersScreen() {
         setCurrentUserId('');
         setVolunteers([]);
         setMyRequests([]);
+        setMyApplication(null);
         setErrorText('Du måste logga in för att se volontärer.');
         return;
       }
 
       setCurrentUserId(user.id);
 
-      const [activeVolunteers, requests] = await Promise.all([
+      const [activeVolunteers, requests, applicationResult] = await Promise.all([
         listActiveVolunteers(),
         getMyVolunteerRequests(user.id),
+        supabase
+          .from('volunteer_applications')
+          .select('id, status, role_sv, submitted_at, created_at')
+          .eq('user_id', user.id)
+          .order('submitted_at', { ascending: false, nullsFirst: false })
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
       ]);
+
+      if (applicationResult.error) throw applicationResult.error;
 
       const visibleVolunteers = activeVolunteers
         .filter((item) => item.volunteer_user_id !== user.id)
@@ -146,6 +193,7 @@ export default function VolunteersScreen() {
 
       setVolunteers(visibleVolunteers);
       setMyRequests(requests);
+      setMyApplication((applicationResult.data as MyVolunteerApplicationRow | null) ?? null);
     } catch (error: any) {
       setErrorText(error?.message || 'Kunde inte ladda volontärer.');
     } finally {
@@ -368,6 +416,41 @@ export default function VolunteersScreen() {
               Skicka en hjälpfråga så väljer volontären om den kan hjälpa dig.
             </Text>
           </View>
+
+          {myApplication ? (
+            <Pressable
+              style={styles.applicationStatusCard}
+              onPress={() => router.push('/volunteers/apply')}
+            >
+              <Text style={styles.applicationStatusKicker}>Din volontäransökan</Text>
+              <Text style={styles.applicationStatusTitle}>
+                {getApplicationStatusTitle(myApplication.status)}
+              </Text>
+              <Text style={styles.applicationStatusMeta}>
+                {(myApplication.role_sv || 'Volontär')} · skickad{' '}
+                {formatApplicationDate(myApplication.submitted_at || myApplication.created_at)}
+              </Text>
+              <Text style={styles.applicationStatusText}>
+                {getApplicationStatusText(myApplication.status)}
+              </Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              style={styles.applyVolunteerCard}
+              onPress={() => router.push('/volunteers/apply')}
+            >
+              <View style={styles.applyVolunteerIcon}>
+                <Text style={styles.applyVolunteerEmoji}>🤝</Text>
+              </View>
+              <View style={styles.applyVolunteerTextWrap}>
+                <Text style={styles.applyVolunteerTitle}>Vill du hjälpa andra?</Text>
+                <Text style={styles.applyVolunteerText}>
+                  Ansök som volontär och syns här när admin har godkänt dig.
+                </Text>
+              </View>
+              <Text style={styles.applyVolunteerArrow}>›</Text>
+            </Pressable>
+          )}
 
           {errorText ? (
             <View style={styles.stateCard}>
@@ -612,6 +695,82 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 24,
     color: '#5B6785',
+  },
+  applicationStatusCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: withuRadius.xl,
+    borderWidth: 1,
+    borderColor: '#DCE4F3',
+    padding: withuSpacing.lg,
+    marginBottom: 14,
+    ...withuShadows.card,
+  },
+  applicationStatusKicker: {
+    color: withuColors.teal,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+    marginBottom: 6,
+    textTransform: 'uppercase',
+  },
+  applicationStatusTitle: {
+    color: '#20325E',
+    fontSize: 21,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  applicationStatusMeta: {
+    color: '#6F7B99',
+    fontSize: 13,
+    fontWeight: '800',
+    marginBottom: 8,
+  },
+  applicationStatusText: {
+    color: '#5B6785',
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  applyVolunteerCard: {
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: withuRadius.xl,
+    borderWidth: 1,
+    borderColor: '#DCE4F3',
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 14,
+    padding: withuSpacing.lg,
+    ...withuShadows.card,
+  },
+  applyVolunteerIcon: {
+    alignItems: 'center',
+    backgroundColor: '#E8F7F3',
+    borderRadius: 20,
+    height: 54,
+    justifyContent: 'center',
+    width: 54,
+  },
+  applyVolunteerEmoji: {
+    fontSize: 26,
+  },
+  applyVolunteerTextWrap: {
+    flex: 1,
+  },
+  applyVolunteerTitle: {
+    color: '#20325E',
+    fontSize: 18,
+    fontWeight: '900',
+    marginBottom: 3,
+  },
+  applyVolunteerText: {
+    color: '#5B6785',
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  applyVolunteerArrow: {
+    color: '#20325E',
+    fontSize: 32,
+    fontWeight: '500',
   },
   listWrap: {
     gap: 12,
