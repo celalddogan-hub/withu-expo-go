@@ -25,7 +25,7 @@ import { guardContentOrShowHelp } from '../../src/lib/crisisSafety';
 import { WithUAvatar, WithUScreen, WithUTopBar } from '../../src/components/withu/WithUPrimitives';
 import { ensureTrustAllowed } from '../../src/lib/trust';
 
-type FeedType = 'all' | 'activity' | 'photo' | 'event' | 'question';
+type FeedType = 'all' | 'activity' | 'thought' | 'photo' | 'event' | 'question';
 type ComposerType = Exclude<FeedType, 'all'>;
 type Visibility = 'friends' | 'matches' | 'nearby';
 type ReportReasonKey = 'harassment' | 'threat' | 'hate' | 'spam' | 'self_harm' | 'other';
@@ -63,6 +63,7 @@ const MAX_POST_IMAGES = 4;
 const FILTERS: { key: FeedType; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: 'all', label: 'Vänner', icon: 'people-outline' },
   { key: 'activity', label: 'Aktiviteter', icon: 'cafe-outline' },
+  { key: 'thought', label: 'Tankar', icon: 'leaf-outline' },
   { key: 'photo', label: 'Bilder', icon: 'images-outline' },
   { key: 'event', label: 'Träffar', icon: 'calendar-outline' },
   { key: 'question', label: 'Frågor', icon: 'help-circle-outline' },
@@ -70,6 +71,7 @@ const FILTERS: { key: FeedType; label: string; icon: keyof typeof Ionicons.glyph
 
 const TYPE_META: Record<ComposerType, { label: string; icon: string; color: string; light: string }> = {
   activity: { label: 'Aktivitet', icon: '☕', color: '#E05C4B', light: '#FFF2F0' },
+  thought: { label: 'Tanke', icon: '🌿', color: '#1C5E52', light: '#EAF5F1' },
   photo: { label: 'Bild', icon: '📷', color: '#2F6FED', light: '#EEF4FF' },
   event: { label: 'Träff', icon: '📅', color: '#7A4FD1', light: '#F3EEFF' },
   question: { label: 'Fråga', icon: '?', color: '#1C5E52', light: '#EAF5F1' },
@@ -761,7 +763,7 @@ export default function FeedScreen() {
                 <Text style={styles.nowTitle}>Aktiviteter</Text>
                 <Text style={styles.nowSub}>se vem som vill ses</Text>
               </Pressable>
-              <Pressable style={styles.nowCard} onPress={() => router.push('/explore')}>
+              <Pressable style={styles.nowCard} onPress={() => setActiveFilter('thought')}>
                 <Text style={styles.nowEmoji}>🌿</Text>
                 <Text style={styles.nowTitle}>Tankar</Text>
                 <Text style={styles.nowSub}>trygga ord</Text>
@@ -786,13 +788,16 @@ export default function FeedScreen() {
               </View>
             </Pressable>
 
-            <Pressable style={styles.thoughtsShortcut} onPress={() => router.push('/explore')}>
+            <Pressable style={styles.thoughtsShortcut} onPress={() => {
+              setComposerType('thought');
+              setComposerOpen(true);
+            }}>
               <View style={styles.thoughtsIcon}>
                 <Ionicons name="leaf" size={22} color="#1C5E52" />
               </View>
               <View style={styles.thoughtsTextWrap}>
                 <Text style={styles.thoughtsTitle}>Tankar</Text>
-                <Text style={styles.thoughtsSub}>Skriv anonymt eller läs trygga tankar</Text>
+                <Text style={styles.thoughtsSub}>Skriv en tanke direkt i flödet</Text>
               </View>
               <Ionicons name="chevron-forward" size={20} color="#7A8499" />
             </Pressable>
@@ -950,6 +955,10 @@ export default function FeedScreen() {
               <Pressable style={styles.toolButton} onPress={() => setComposerType('activity')}>
                 <Ionicons name="cafe-outline" size={22} color="#1C5E52" />
                 <Text style={styles.toolText}>Aktivitet</Text>
+              </Pressable>
+              <Pressable style={styles.toolButton} onPress={() => setComposerType('thought')}>
+                <Ionicons name="leaf-outline" size={22} color="#1C5E52" />
+                <Text style={styles.toolText}>Tanke</Text>
               </Pressable>
               <Pressable style={styles.toolButton} onPress={() => setComposerType('event')}>
                 <Ionicons name="calendar-outline" size={22} color="#1C5E52" />

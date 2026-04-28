@@ -11,7 +11,6 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import { supabase } from '../../lib/supabase';
 import { createScopedRealtimeChannel, removeChannelSafely } from '../../lib/realtime';
 import {
   acceptVolunteerSupportRequest,
@@ -34,7 +33,7 @@ type Props = {
   userId: string;
 };
 
-function formatRemainingTime(activeUntil?: string | null) {
+function formatRemainingTime(activeUntil?: string | null, _tick?: number) {
   if (!activeUntil) return '—';
 
   const remainingMs = new Date(activeUntil).getTime() - Date.now();
@@ -291,7 +290,7 @@ export default function VolunteerStatusCard({ userId }: Props) {
     }
   };
 
-  const remainingText = useMemo(() => formatRemainingTime(activeUntil), [activeUntil, tick]);
+  const remainingText = useMemo(() => formatRemainingTime(activeUntil, tick), [activeUntil, tick]);
 
   if (loading) {
     return (

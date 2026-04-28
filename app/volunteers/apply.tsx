@@ -109,10 +109,10 @@ const TAG_OPTIONS = [
 
 const AGE_GROUP_OPTIONS = ['15-17', '18-25', '25-40', '40-60', '60-90+'] as const;
 
-const DOCUMENT_TYPE_OPTIONS: Array<{
+const DOCUMENT_TYPE_OPTIONS: {
   value: LocalDocument['docType'];
   label: string;
-}> = [
+}[] = [
   { value: 'criminal_record_extract', label: 'Belastningsregister' },
   { value: 'education_certificate', label: 'Utbildningsintyg' },
   { value: 'work_certificate', label: 'Arbetsintyg' },

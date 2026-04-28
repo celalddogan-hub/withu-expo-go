@@ -171,7 +171,7 @@ export async function listActiveVolunteers(): Promise<ActiveVolunteerNowRow[]> {
   });
 
   const pendingCountMap = new Map<string, number>();
-  ((pendingData ?? []) as Array<{ id: string; availability_id: string; status: string }>).forEach(
+  ((pendingData ?? []) as { id: string; availability_id: string; status: string }[]).forEach(
     (row) => {
       pendingCountMap.set(
         row.availability_id,
@@ -380,7 +380,7 @@ export async function getMyVolunteerStatus(userId: string): Promise<MyVolunteerS
 
   if (requestError) throw requestError;
 
-  const rows = (requestData ?? []) as Array<{ id: string; status: VolunteerSupportRequestStatus }>;
+  const rows = (requestData ?? []) as { id: string; status: VolunteerSupportRequestStatus }[];
 
   return {
     isApprovedVolunteer: true,

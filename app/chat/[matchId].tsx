@@ -442,13 +442,13 @@ export default function ChatDetailScreen() {
         throw new Error('Match eller användare saknas.');
       }
 
-      const rows: Array<{
+      const rows: {
         match_id: string;
         sender_id: string;
         content: string;
         message_type: 'text' | 'image' | 'audio';
         media_url: string | null;
-      }> = [
+      }[] = [
         {
           match_id: matchId,
           sender_id: currentUserId,
