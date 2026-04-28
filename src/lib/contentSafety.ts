@@ -34,8 +34,12 @@ const HARASSMENT_PATTERNS = [
 ];
 
 const SEXUAL_PATTERNS = [
-  /\b(skicka\s+naken|nakenbild|nakenbilder|dickpic|sex\s+med\s+mig)\b/i,
-  /\b(send\s+nudes|nude\s+pic|dick\s+pic|sex\s+with\s+me)\b/i,
+  /\b(skicka\s+naken|skicka\s+nudes|nakenbild|nakenbilder|naken\s+bild|naken\s+bilder|dickpic|dick\s+pic)\b/i,
+  /\b(porr|porno|pornografi|xxx|onlyfans|sexchatt|sex\s+chatt|sextr[aä]ff|k[oö]pa\s+sex)\b/i,
+  /\b(sex\s+med\s+mig|ligga\s+med\s+mig|knulla\s+mig|suga\s+av|visa\s+br[oö]st|visa\s+kuk|visa\s+fitta)\b/i,
+  /\b(send\s+nudes|nude\s+pic|nude\s+pics|naked\s+pic|dick\s+pic|sex\s+with\s+me|fuck\s+me)\b/i,
+  /\b(porn|porno|pornography|onlyfans|sex\s+chat|sexual\s+chat|hookup\s+for\s+sex|buy\s+sex)\b/i,
+  /\b(blowjob|handjob|show\s+boobs|show\s+tits|show\s+pussy|show\s+dick)\b/i,
 ];
 
 const SELF_HARM_PATTERNS = [

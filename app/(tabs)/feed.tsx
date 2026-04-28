@@ -40,6 +40,7 @@ type FeedPost = {
   activity_title: string | null;
   image_path: string | null;
   image_paths?: string[] | null;
+  image_status?: 'none' | 'pending' | 'approved' | 'rejected' | string | null;
   image_url?: string | null;
   image_urls?: string[];
   like_count: number | null;
@@ -130,9 +131,15 @@ function urlHost(url: string) {
 }
 
 function getPostImagePaths(post: FeedPost) {
+  if (post.image_status && post.image_status !== 'approved') return [];
   const paths = Array.isArray(post.image_paths) ? post.image_paths.filter(Boolean) : [];
   if (paths.length) return paths.slice(0, MAX_POST_IMAGES);
   return post.image_path ? [post.image_path] : [];
+}
+
+function hasStoredPostImages(post: FeedPost) {
+  const paths = Array.isArray(post.image_paths) ? post.image_paths.filter(Boolean) : [];
+  return paths.length > 0 || !!post.image_path;
 }
 
 function renderLinkedText(text: string) {
@@ -209,7 +216,7 @@ export default function FeedScreen() {
       const { data, error } = await supabase
         .from('posts')
         .select(
-          'id, user_id, type, content, area, activity_icon, activity_title, image_path, image_paths, like_count, comment_count, participant_count, created_at, profiles:profiles!posts_user_id_fkey(name, city, avatar_url, avatar_emoji, is_bankid_verified)'
+          'id, user_id, type, content, area, activity_icon, activity_title, image_path, image_paths, image_status, like_count, comment_count, participant_count, created_at, profiles:profiles!posts_user_id_fkey(name, city, avatar_url, avatar_emoji, is_bankid_verified)'
         )
         .eq('is_active', true)
         .eq('moderation_status', 'visible')
@@ -373,7 +380,7 @@ export default function FeedScreen() {
         activity_title: activityTitle.trim() || null,
         image_path: imagePaths[0] ?? null,
         image_paths: imagePaths,
-        image_status: imagePaths.length ? 'approved' : 'none',
+        image_status: imagePaths.length ? 'pending' : 'none',
         area: visibility === 'nearby' ? 'Nära dig' : visibility === 'matches' ? 'Matcher' : 'Vänner',
       });
 
@@ -605,6 +612,7 @@ export default function FeedScreen() {
     const imageUrls = item.image_urls?.length ? item.image_urls : item.image_url ? [item.image_url] : [];
     const linkUrl = firstUrl(item.content);
     const isOwnPost = item.user_id === currentUserId;
+    const hasPendingImages = hasStoredPostImages(item) && item.image_status === 'pending';
 
     return (
       <View style={styles.postCard}>
@@ -639,6 +647,13 @@ export default function FeedScreen() {
                 ]}
               />
             ))}
+          </View>
+        ) : null}
+
+        {hasPendingImages && isOwnPost ? (
+          <View style={styles.pendingImageNotice}>
+            <Ionicons name="shield-checkmark-outline" size={19} color="#1C5E52" />
+            <Text style={styles.pendingImageText}>Bilden granskas innan den visas for andra.</Text>
           </View>
         ) : null}
 
@@ -1228,6 +1243,18 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 210,
   },
+  pendingImageNotice: {
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#B8DDD5',
+    backgroundColor: '#EAF5F1',
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  pendingImageText: { flex: 1, color: '#1C5E52', fontSize: 12, fontWeight: '900' },
   postText: { color: '#334155', fontSize: 16, lineHeight: 24, marginBottom: 12 },
   linkText: { color: '#1C5E52', fontWeight: '900', textDecorationLine: 'underline' },
   linkCard: {
