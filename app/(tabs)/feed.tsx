@@ -776,10 +776,10 @@ export default function FeedScreen() {
                 <Text style={styles.nowTitle}>Aktiviteter</Text>
                 <Text style={styles.nowSub}>se vem som vill ses</Text>
               </Pressable>
-              <Pressable style={styles.nowCard} onPress={() => setActiveFilter('thought')}>
+              <Pressable style={styles.nowCard} onPress={() => router.push('/(tabs)/explore' as any)}>
                 <Text style={styles.nowEmoji}>🌿</Text>
                 <Text style={styles.nowTitle}>Tankar</Text>
-                <Text style={styles.nowSub}>trygga ord</Text>
+                <Text style={styles.nowSub}>öppna sidan</Text>
               </Pressable>
               <Pressable style={styles.nowCard} onPress={() => setActiveFilter('photo')}>
                 <Text style={styles.nowEmoji}>📷</Text>
@@ -801,16 +801,13 @@ export default function FeedScreen() {
               </View>
             </Pressable>
 
-            <Pressable style={styles.thoughtsShortcut} onPress={() => {
-              setComposerType('thought');
-              setComposerOpen(true);
-            }}>
+            <Pressable style={styles.thoughtsShortcut} onPress={() => router.push('/(tabs)/explore' as any)}>
               <View style={styles.thoughtsIcon}>
                 <Ionicons name="leaf" size={22} color="#1C5E52" />
               </View>
               <View style={styles.thoughtsTextWrap}>
                 <Text style={styles.thoughtsTitle}>Tankar</Text>
-                <Text style={styles.thoughtsSub}>Skriv en tanke direkt i flödet</Text>
+                <Text style={styles.thoughtsSub}>Öppna tankar, stöd och kommentarer</Text>
               </View>
               <Ionicons name="chevron-forward" size={20} color="#7A8499" />
             </Pressable>
