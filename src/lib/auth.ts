@@ -1,5 +1,6 @@
-import * as Linking from 'expo-linking';
 import { supabase } from './supabase';
+
+export const PASSWORD_RESET_REDIRECT_URL = 'withu://reset-password';
 
 function normalizeEmail(value: string) {
   return value.trim().toLowerCase();
@@ -113,17 +114,15 @@ export async function sendPasswordResetEmail(email: string) {
     throw new Error('Fyll i en giltig e-postadress.');
   }
 
-  const redirectTo = Linking.createURL('/reset-password');
-
   const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
-    redirectTo,
+    redirectTo: PASSWORD_RESET_REDIRECT_URL,
   });
 
   if (error) {
     throw new Error(error.message || 'Kunde inte skicka återställningsmejl.');
   }
 
-  return { redirectTo };
+  return { redirectTo: PASSWORD_RESET_REDIRECT_URL };
 }
 
 export async function signOutCurrentSession() {
