@@ -17,8 +17,10 @@ import {
   View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
+import { decode } from 'base64-arraybuffer';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { supabase } from '../../src/lib/supabase';
@@ -343,11 +345,15 @@ export default function FeedScreen() {
 
     const paths = await Promise.all(
       selectedImages.slice(0, MAX_POST_IMAGES).map(async (image, index) => {
-        const response = await fetch(image.uri);
-        const blob = await response.blob();
-        const extension = image.uri.split('.').pop()?.toLowerCase() || 'jpg';
+        const base64 = await FileSystem.readAsStringAsync(image.uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        const arrayBuffer = decode(base64);
+        const extension = (image.fileName?.split('.').pop() || image.uri.split('.').pop() || 'jpg')
+          .split('?')[0]
+          .toLowerCase();
         const path = `${currentUserId}/${Date.now()}-${index}.${extension}`;
-        const { error } = await supabase.storage.from(IMAGE_BUCKET).upload(path, blob, {
+        const { error } = await supabase.storage.from(IMAGE_BUCKET).upload(path, arrayBuffer, {
           contentType: image.mimeType || 'image/jpeg',
           upsert: false,
         });
