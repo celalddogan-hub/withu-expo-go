@@ -139,6 +139,32 @@ export default function AdminHomeScreen() {
         </WithUCard>
 
         <WithUCard style={styles.mainCard}>
+          <WithUSectionLabel>Bildgranskning</WithUSectionLabel>
+          <WithUTitle style={styles.cardTitle}>Flodesbilder</WithUTitle>
+          <WithUSubtitle>
+            Godkann eller avvisa bilder innan de visas for andra i flodet.
+          </WithUSubtitle>
+
+          <View style={styles.iconRow}>
+            <View style={[styles.bigIconWrap, styles.greenIconWrap]}>
+              <Text style={styles.bigIcon}>🖼️</Text>
+            </View>
+            <View style={styles.textCol}>
+              <Text style={styles.blockTitle}>Oppna bildgranskning</Text>
+              <Text style={styles.blockText}>
+                Nya bilder hamnar i vantelista och blir publika forst efter adminbeslut.
+              </Text>
+            </View>
+          </View>
+
+          <WithUPrimaryButton
+            title="Oppna bildgranskning"
+            onPress={() => router.push('/admin/images')}
+            style={styles.actionButton}
+          />
+        </WithUCard>
+
+        <WithUCard style={styles.mainCard}>
           <WithUSectionLabel>Volontärer</WithUSectionLabel>
           <WithUTitle style={styles.cardTitle}>Volontäransökningar</WithUTitle>
           <WithUSubtitle>
@@ -174,6 +200,10 @@ export default function AdminHomeScreen() {
 
           <Pressable style={styles.inlineLink} onPress={() => router.push('/admin/reports')}>
             <Text style={styles.inlineLinkText}>Gå till rapporter</Text>
+          </Pressable>
+
+          <Pressable style={styles.inlineLink} onPress={() => router.push('/admin/images')}>
+            <Text style={styles.inlineLinkText}>Ga till bildgranskning</Text>
           </Pressable>
 
           <Pressable style={styles.inlineLink} onPress={() => router.push('/admin/stats')}>
