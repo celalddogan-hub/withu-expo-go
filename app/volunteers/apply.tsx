@@ -213,7 +213,17 @@ export default function VolunteerApplyScreen() {
       const latestApplication = (((applicationRows ?? []) as VolunteerApplicationRow[])[0] ??
         null) as VolunteerApplicationRow | null;
 
-      setOwnProfile((ownProfileRow as OwnProfileRow | null) ?? null);
+      const resolvedProfile = (ownProfileRow as OwnProfileRow | null) ?? null;
+      const authEmailVerified = !!user.email_confirmed_at;
+
+      setOwnProfile(
+        resolvedProfile
+          ? {
+              ...resolvedProfile,
+              email_verified: !!resolvedProfile.email_verified || authEmailVerified,
+            }
+          : null
+      );
 
       if (volunteerProfileRow) {
         setExistingStatus('approved');
@@ -278,10 +288,12 @@ export default function VolunteerApplyScreen() {
   );
 
   const totalDocumentCount = existingDocuments.length + localDocuments.length;
+  const isVerifiedForApplication =
+    !!ownProfile && (!!ownProfile.is_bankid_verified || !!ownProfile.email_verified);
   const isEligible =
     !!ownProfile &&
     (ownProfile.age ?? 0) >= 18 &&
-    (!!ownProfile.is_bankid_verified || !!ownProfile.email_verified) &&
+    isVerifiedForApplication &&
     existingStatus !== 'approved';
 
   const toggleTag = (tag: string) => {
@@ -403,8 +415,26 @@ export default function VolunteerApplyScreen() {
   };
 
   const validateBeforeSave = () => {
-    if (!isEligible) {
-      Alert.alert('Kan inte ansöka', 'Du måste vara 18+ och ha verifierad e-post. BankID kan läggas till senare.');
+    if (!ownProfile) {
+      Alert.alert('Profil saknas', 'Öppna Profil och fyll i dina grunduppgifter först.');
+      return false;
+    }
+
+    if ((ownProfile.age ?? 0) < 18) {
+      Alert.alert('Ålder saknas', 'Du måste vara minst 18 år för att skicka en volontäransökan.');
+      return false;
+    }
+
+    if (!isVerifiedForApplication) {
+      Alert.alert(
+        'Verifiera e-post',
+        'Bekräfta din e-post via länken från Supabase och öppna appen igen. BankID kan läggas till senare.'
+      );
+      return false;
+    }
+
+    if (existingStatus === 'approved') {
+      Alert.alert('Redan godkänd', 'Du är redan godkänd som volontär.');
       return false;
     }
 
@@ -937,7 +967,7 @@ export default function VolunteerApplyScreen() {
                   : 'Skicka ansökan'
               }
               onPress={saveApplication}
-              disabled={!isEligible || saving}
+              disabled={saving}
               style={styles.submitButton}
             />
           </WithUCard>
