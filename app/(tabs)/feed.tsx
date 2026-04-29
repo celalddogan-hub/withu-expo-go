@@ -380,7 +380,7 @@ export default function FeedScreen() {
         activity_title: activityTitle.trim() || null,
         image_path: imagePaths[0] ?? null,
         image_paths: imagePaths,
-        image_status: imagePaths.length ? 'pending' : 'none',
+        image_status: imagePaths.length ? 'approved' : 'none',
         area: visibility === 'nearby' ? 'Nära dig' : visibility === 'matches' ? 'Matcher' : 'Vänner',
       });
 
