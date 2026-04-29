@@ -17,6 +17,7 @@ import {
   View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
@@ -137,6 +138,11 @@ function getPostImagePaths(post: FeedPost) {
   return post.image_path ? [post.image_path] : [];
 }
 
+function getPostImageUrl(path: string) {
+  const { data } = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path);
+  return data.publicUrl || null;
+}
+
 function hasStoredPostImages(post: FeedPost) {
   const paths = Array.isArray(post.image_paths) ? post.image_paths.filter(Boolean) : [];
   return paths.length > 0 || !!post.image_path;
@@ -232,19 +238,7 @@ export default function FeedScreen() {
           const paths = getPostImagePaths(post);
           if (!paths.length) return { ...post, image_url: null, image_urls: [] };
 
-          const imageUrls = await Promise.all(
-            paths.map(async (path) => {
-              const { data: signedData } = await supabase.storage
-                .from(IMAGE_BUCKET)
-                .createSignedUrl(path, 60 * 60);
-
-              if (signedData?.signedUrl) return signedData.signedUrl;
-
-              const { data: publicData } = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path);
-              return publicData.publicUrl || null;
-            })
-          );
-          const urls = imageUrls.filter(Boolean) as string[];
+          const urls = paths.map(getPostImageUrl).filter(Boolean) as string[];
           return { ...post, image_url: urls[0] ?? null, image_urls: urls };
         })
       );
@@ -637,9 +631,13 @@ export default function FeedScreen() {
         {imageUrls.length ? (
           <View style={[styles.postImageGrid, imageUrls.length === 1 && styles.postImageGridSingle]}>
             {imageUrls.slice(0, MAX_POST_IMAGES).map((url, index) => (
-              <Image
+              <ExpoImage
                 key={`${url}-${index}`}
                 source={{ uri: url }}
+                contentFit="cover"
+                transition={150}
+                cachePolicy="memory-disk"
+                recyclingKey={`${item.id}-${index}`}
                 style={[
                   styles.postGridImage,
                   imageUrls.length === 1 && styles.postGridImageSingle,
