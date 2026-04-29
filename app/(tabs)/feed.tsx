@@ -219,6 +219,7 @@ export default function FeedScreen() {
   const [reportPost, setReportPost] = useState<FeedPost | null>(null);
   const [reportReason, setReportReason] = useState<ReportReasonKey>('harassment');
   const [reportDetails, setReportDetails] = useState('');
+  const [failedImageUrls, setFailedImageUrls] = useState<Record<string, true>>({});
   const [saving, setSaving] = useState(false);
 
   const filteredPosts = useMemo(
@@ -230,6 +231,7 @@ export default function FeedScreen() {
     try {
       setErrorText('');
       setSetupRequired(false);
+      setFailedImageUrls({});
 
       const {
         data: { user },
@@ -629,10 +631,12 @@ export default function FeedScreen() {
 
   const renderPost = ({ item }: { item: FeedPost }) => {
     const meta = TYPE_META[item.type] || TYPE_META.activity;
-    const imageUrls = item.image_urls?.length ? item.image_urls : item.image_url ? [item.image_url] : [];
+    const rawImageUrls = item.image_urls?.length ? item.image_urls : item.image_url ? [item.image_url] : [];
+    const imageUrls = rawImageUrls.filter((url) => !failedImageUrls[`${item.id}:${url}`]);
     const linkUrl = firstUrl(item.content);
     const isOwnPost = item.user_id === currentUserId;
     const hasPendingImages = hasStoredPostImages(item) && item.image_status === 'pending';
+    const hasBrokenImages = rawImageUrls.length > 0 && imageUrls.length === 0;
 
     return (
       <View style={styles.postCard}>
@@ -664,6 +668,9 @@ export default function FeedScreen() {
                 transition={150}
                 cachePolicy="memory-disk"
                 recyclingKey={`${item.id}-${index}`}
+                onError={() => {
+                  setFailedImageUrls((current) => ({ ...current, [`${item.id}:${url}`]: true }));
+                }}
                 style={[
                   styles.postGridImage,
                   imageUrls.length === 1 && styles.postGridImageSingle,
@@ -671,6 +678,13 @@ export default function FeedScreen() {
                 ]}
               />
             ))}
+          </View>
+        ) : null}
+
+        {hasBrokenImages ? (
+          <View style={styles.brokenImageNotice}>
+            <Ionicons name="image-outline" size={19} color="#7A8399" />
+            <Text style={styles.brokenImageText}>Bilden kunde inte laddas. Prova att ladda upp bilden igen.</Text>
           </View>
         ) : null}
 
@@ -1276,6 +1290,18 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   pendingImageText: { flex: 1, color: '#1C5E52', fontSize: 12, fontWeight: '900' },
+  brokenImageNotice: {
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#DFE4EC',
+    backgroundColor: '#F6F8FB',
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  brokenImageText: { flex: 1, color: '#5C6780', fontSize: 12, fontWeight: '900', lineHeight: 17 },
   postText: { color: '#334155', fontSize: 16, lineHeight: 24, marginBottom: 12 },
   linkText: { color: '#1C5E52', fontWeight: '900', textDecorationLine: 'underline' },
   linkCard: {
