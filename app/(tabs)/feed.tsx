@@ -138,9 +138,29 @@ function getPostImagePaths(post: FeedPost) {
   return post.image_path ? [post.image_path] : [];
 }
 
-function getPostImageUrl(path: string) {
-  const { data } = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path);
-  return data.publicUrl || null;
+async function getPostImageUrls(paths: string[]) {
+  if (!paths.length) return [];
+
+  try {
+    const { data, error } = await supabase.storage
+      .from(IMAGE_BUCKET)
+      .createSignedUrls(paths, 60 * 60);
+
+    if (!error && data?.length) {
+      const signedUrls = data
+        .map((item) => item.signedUrl)
+        .filter((url): url is string => !!url);
+
+      if (signedUrls.length) return signedUrls;
+    }
+  } catch {
+    // Fall back to public URLs below. Some local/dev buckets are public while
+    // production may require signed links depending on Storage policy timing.
+  }
+
+  return paths
+    .map((path) => supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path).data.publicUrl)
+    .filter((url): url is string => !!url);
 }
 
 function hasStoredPostImages(post: FeedPost) {
@@ -238,7 +258,7 @@ export default function FeedScreen() {
           const paths = getPostImagePaths(post);
           if (!paths.length) return { ...post, image_url: null, image_urls: [] };
 
-          const urls = paths.map(getPostImageUrl).filter(Boolean) as string[];
+          const urls = await getPostImageUrls(paths);
           return { ...post, image_url: urls[0] ?? null, image_urls: urls };
         })
       );
