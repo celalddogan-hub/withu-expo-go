@@ -1034,7 +1034,14 @@ export default function ProfileScreen() {
                     onPress={() => setActiveTab(tab.key)}
                   >
                     <Ionicons name={tab.icon} size={18} color={active ? '#FFFFFF' : '#617092'} />
-                    <Text style={[styles.tabText, active && styles.tabTextActive]}>{tab.label}</Text>
+                    <Text
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.72}
+                      style={[styles.tabText, active && styles.tabTextActive]}
+                    >
+                      {tab.label}
+                    </Text>
                   </Pressable>
                 );
               })}
@@ -1168,8 +1175,10 @@ const styles = StyleSheet.create({
   },
   tabText: {
     color: '#617092',
-    fontSize: 12,
+    flexShrink: 1,
+    fontSize: 11,
     fontWeight: '900',
+    textAlign: 'center',
   },
   tabTextActive: {
     color: '#FFFFFF',

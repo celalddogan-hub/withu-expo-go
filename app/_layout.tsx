@@ -53,14 +53,28 @@ export default function RootLayout() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let mounted = true;
+    const sessionTimeout = setTimeout(() => {
+      if (!mounted) return;
+      setLoading(false);
+    }, 2200);
+
     supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!mounted) return;
+      clearTimeout(sessionTimeout);
       setSession(session);
+      setLoading(false);
+    }).catch(() => {
+      if (!mounted) return;
+      clearTimeout(sessionTimeout);
+      setSession(null);
       setLoading(false);
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!mounted) return;
       setSession(session);
       setLoading(false);
 
@@ -70,6 +84,8 @@ export default function RootLayout() {
     });
 
     return () => {
+      mounted = false;
+      clearTimeout(sessionTimeout);
       subscription.unsubscribe();
     };
   }, [router]);

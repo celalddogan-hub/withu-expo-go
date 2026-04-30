@@ -255,7 +255,20 @@ export default function HittaScreen() {
       setCurrentUserId(user.id);
 
       const nowIso = new Date().toISOString();
-      const [ownProfile, outgoingMatches, incomingMatches, blockedIds, adminRows, profileRows, volunteerCountResult] =
+      void (async () => {
+        try {
+          const { count } = await supabase
+            .from('volunteer_availability')
+            .select('id', { count: 'exact', head: true })
+            .eq('status', 'active')
+            .gt('active_until', nowIso);
+          setVolunteerCount(count ?? 0);
+        } catch {
+          setVolunteerCount(0);
+        }
+      })();
+
+      const [ownProfile, outgoingMatches, incomingMatches, blockedIds, adminRows, profileRows] =
         await Promise.all([
         supabase.from('profiles').select('name, age, min_age, max_age').eq('id', user.id).maybeSingle(),
         supabase
@@ -277,11 +290,6 @@ export default function HittaScreen() {
           .eq('is_profile_complete', true)
           .eq('is_discoverable', true)
           .limit(30),
-        supabase
-          .from('volunteer_availability')
-          .select('id', { count: 'exact', head: true })
-          .eq('status', 'active')
-          .gt('active_until', nowIso),
       ]);
 
       if (ownProfile.error) throw ownProfile.error;
@@ -289,13 +297,10 @@ export default function HittaScreen() {
       if (incomingMatches.error) throw incomingMatches.error;
       if (adminRows.error) throw adminRows.error;
       if (profileRows.error) throw profileRows.error;
-      if (volunteerCountResult.error) throw volunteerCountResult.error;
 
       const ownAge = ownProfile.data?.age ?? null;
       const ownMinAge = ownProfile.data?.min_age ?? 18;
       const ownMaxAge = ownProfile.data?.max_age ?? 99;
-
-      setVolunteerCount(volunteerCountResult.count ?? 0);
 
       const outgoing = (outgoingMatches.data ?? []) as MatchRow[];
       const incoming = (incomingMatches.data ?? []) as MatchRow[];

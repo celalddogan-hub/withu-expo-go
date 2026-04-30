@@ -13,7 +13,7 @@ export default function IndexScreen() {
       if (!mounted) return;
       setMessage('Öppnar inloggning...');
       router.replace('/login');
-    }, 8000);
+    }, 2500);
 
     async function routeFromSession() {
       try {

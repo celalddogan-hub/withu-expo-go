@@ -34,7 +34,7 @@ export default function TabsLayout() {
           backgroundColor: '#FFFFFF',
         },
         tabBarLabelStyle: {
-          fontSize: 11,
+          fontSize: 10,
           fontWeight: '800',
         },
       }}

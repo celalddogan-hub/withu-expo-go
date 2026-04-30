@@ -251,21 +251,20 @@ export default function FeedScreen() {
         .eq('is_active', true)
         .eq('moderation_status', 'visible')
         .order('created_at', { ascending: false })
-        .limit(60);
+        .limit(30);
 
       if (error) throw error;
 
       const nextPosts = (data ?? []) as unknown as FeedPost[];
       const ids = nextPosts.map((post) => post.id);
-      const postsWithImages = await Promise.all(
-        nextPosts.map(async (post) => {
-          const paths = getPostImagePaths(post);
-          if (!paths.length) return { ...post, image_url: null, image_urls: [] };
-
-          const urls = await getPostImageUrls(paths);
-          return { ...post, image_url: urls[0] ?? null, image_urls: urls };
-        })
-      );
+      const postImagePaths = nextPosts.map((post) => getPostImagePaths(post));
+      const uniqueImagePaths = [...new Set(postImagePaths.flat())];
+      const imageUrls = await getPostImageUrls(uniqueImagePaths);
+      const imageUrlByPath = new Map(uniqueImagePaths.map((path, index) => [path, imageUrls[index]]));
+      const postsWithImages = nextPosts.map((post, index) => {
+        const urls = postImagePaths[index].map((path) => imageUrlByPath.get(path)).filter((url): url is string => !!url);
+        return { ...post, image_url: urls[0] ?? null, image_urls: urls };
+      });
 
       if (ids.length) {
         const [{ data: likes }, { data: participants }] = await Promise.all([
