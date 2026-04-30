@@ -75,9 +75,11 @@ export function WithUPage({ children, style }: ContainerProps) {
 
 export function WithULogo() {
   return (
-    <Text style={styles.logoText}>
-      With<Text style={styles.logoAccent}>U</Text>
-    </Text>
+    <Image
+      source={require('../../../assets/images/withu-brand-logo.png')}
+      style={styles.logoImage}
+      resizeMode="contain"
+    />
   );
 }
 
@@ -265,6 +267,11 @@ const styles = StyleSheet.create({
   },
   logoAccent: {
     color: withuColors.coral,
+  },
+  logoImage: {
+    width: 72,
+    height: 72,
+    borderRadius: 18,
   },
 
   topBar: {

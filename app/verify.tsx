@@ -6,6 +6,7 @@ import {
   TextInput,
   Pressable,
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
@@ -81,10 +82,11 @@ export default function VerifyScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <View style={styles.inner}>
-        <View style={styles.logoRow}>
-          <Text style={styles.logoWith}>With</Text>
-          <Text style={styles.logoU}>U</Text>
-        </View>
+        <Image
+          source={require('../assets/images/withu-brand-logo.png')}
+          style={styles.brandLogo}
+          resizeMode="contain"
+        />
 
         <View style={styles.card}>
           <Text style={styles.title}>Ange din kod</Text>
@@ -161,6 +163,13 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     padding: 24,
+  },
+  brandLogo: {
+    width: 118,
+    height: 118,
+    borderRadius: 30,
+    marginBottom: 34,
+    alignSelf: 'center',
   },
   logoRow: {
     flexDirection: 'row',

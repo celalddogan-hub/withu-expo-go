@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -58,10 +59,11 @@ export default function LoginScreen() {
       >
         <View style={styles.inner}>
           <View style={styles.hero}>
-            <View style={styles.logoRow}>
-              <Text style={styles.logoWith}>With</Text>
-              <Text style={styles.logoU}>U</Text>
-            </View>
+            <Image
+              source={require('../assets/images/withu-brand-logo.png')}
+              style={styles.brandLogo}
+              resizeMode="contain"
+            />
 
             <Text style={styles.tagline}>Du är aldrig ensam.</Text>
           </View>
@@ -172,6 +174,13 @@ const styles = StyleSheet.create({
   hero: {
     alignItems: 'center',
     marginBottom: 28,
+  },
+
+  brandLogo: {
+    width: 112,
+    height: 112,
+    borderRadius: 28,
+    marginBottom: 10,
   },
 
   logoRow: {

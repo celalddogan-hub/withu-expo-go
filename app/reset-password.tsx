@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -229,7 +230,11 @@ export default function ResetPasswordScreen() {
       >
         <View style={styles.inner}>
           <View style={styles.hero}>
-            <Text style={styles.logo}>WithU</Text>
+            <Image
+              source={require('../assets/images/withu-brand-logo.png')}
+              style={styles.brandLogo}
+              resizeMode="contain"
+            />
             <Text style={styles.heroSubtitle}>Återställ lösenord</Text>
           </View>
 
@@ -380,6 +385,13 @@ const styles = StyleSheet.create({
   hero: {
     alignItems: 'center',
     marginBottom: 28,
+  },
+
+  brandLogo: {
+    width: 112,
+    height: 112,
+    borderRadius: 28,
+    marginBottom: 10,
   },
 
   logo: {
