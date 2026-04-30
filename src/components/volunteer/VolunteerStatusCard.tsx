@@ -102,8 +102,15 @@ export default function VolunteerStatusCard({ userId }: Props) {
       setPendingRequests(status.pendingRequests ?? 0);
       setAcceptedOpenRequests(status.acceptedOpenRequests ?? 0);
       setIncomingRequests(incoming ?? []);
-    } catch (error: any) {
-      Alert.alert('Kunde inte ladda volontärstatus', error?.message || 'Något gick fel.');
+    } catch {
+      setIsApprovedVolunteer(false);
+      setActiveAvailabilityId(null);
+      setActiveUntil(null);
+      setActiveTitle('');
+      setActiveMessage('');
+      setPendingRequests(0);
+      setAcceptedOpenRequests(0);
+      setIncomingRequests([]);
     } finally {
       setLoading(false);
     }
