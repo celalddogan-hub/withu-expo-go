@@ -207,6 +207,10 @@ export default function ProfileScreen() {
   const publicName = name.trim() || 'Din profil';
   const publicPlace = [city.trim(), country.trim()].filter(Boolean).join(', ') || 'Lägg till stad';
   const visibleActivities = selectedActivities.slice(0, 10);
+  const needSummary = selectedActivities.slice(0, 3).join(', ') || 'prata, fika eller hitta trygg kontakt';
+  const giveSummary = selectedActivities.some((item) => /lyssna|stöd|volontär|prata/i.test(item))
+    ? 'lyssna, stötta och hålla kontakt utan press'
+    : 'sällskap, respekt och enkla samtal';
   const rulesAccepted = !!acceptedRulesAt;
   const limitedUntilTime = limitedUntil ? new Date(limitedUntil).getTime() : 0;
   const limitedActive = isLimited && (!limitedUntil || limitedUntilTime > Date.now());
@@ -662,6 +666,32 @@ export default function ProfileScreen() {
           <Text style={styles.bodyText}>
             {bio || 'Skriv kort vad du söker just nu. Det gör det lättare för rätt person att våga säga hej.'}
           </Text>
+        </View>
+
+        <View style={styles.supportGrid}>
+          <View style={styles.supportCard}>
+            <View style={styles.supportIcon}>
+              <Ionicons name="search-outline" size={20} color="#1C5E52" />
+            </View>
+            <Text style={styles.supportTitle}>Jag söker</Text>
+            <Text style={styles.supportText}>{needSummary}</Text>
+          </View>
+          <View style={styles.supportCard}>
+            <View style={[styles.supportIcon, styles.supportIconWarm]}>
+              <Ionicons name="heart-outline" size={20} color="#E05C4B" />
+            </View>
+            <Text style={styles.supportTitle}>Jag kan ge</Text>
+            <Text style={styles.supportText}>{giveSummary}</Text>
+          </View>
+          <View style={styles.supportCardWide}>
+            <View style={[styles.supportIcon, styles.supportIconBlue]}>
+              <Ionicons name="shield-checkmark-outline" size={20} color="#20325E" />
+            </View>
+            <View style={styles.supportWideText}>
+              <Text style={styles.supportTitle}>Så vill jag bli kontaktad</Text>
+              <Text style={styles.supportText}>Chatta först, frivilligt tempo och ingen exakt plats.</Text>
+            </View>
+          </View>
         </View>
 
         <View style={styles.card}>
@@ -1330,6 +1360,64 @@ const styles = StyleSheet.create({
     color: '#7A8499',
     fontSize: 15,
     lineHeight: 22,
+  },
+  supportGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 12,
+  },
+  supportCard: {
+    flexGrow: 1,
+    flexBasis: '47%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: '#E6EAF4',
+    padding: 15,
+    minHeight: 142,
+  },
+  supportCardWide: {
+    width: '100%',
+    backgroundColor: '#F6FAF8',
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: '#CFE8DF',
+    padding: 15,
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'center',
+  },
+  supportIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 15,
+    backgroundColor: '#EAF6F2',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  supportIconWarm: {
+    backgroundColor: '#FDEDEA',
+  },
+  supportIconBlue: {
+    backgroundColor: '#EAF0FA',
+    marginBottom: 0,
+  },
+  supportTitle: {
+    color: '#0F1E38',
+    fontSize: 16,
+    fontWeight: '900',
+    marginBottom: 5,
+  },
+  supportText: {
+    color: '#617092',
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '700',
+  },
+  supportWideText: {
+    flex: 1,
   },
   chipsWrap: {
     flexDirection: 'row',
