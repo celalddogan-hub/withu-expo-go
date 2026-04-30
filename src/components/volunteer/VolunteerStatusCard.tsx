@@ -522,10 +522,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 10,
+    gap: 8,
     marginBottom: 12,
   },
   headerTextWrap: {
@@ -533,10 +530,11 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   title: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: '900',
     color: withuColors.navy,
     marginBottom: 3,
+    lineHeight: 27,
   },
   subtitle: {
     fontSize: 12,
@@ -549,11 +547,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     alignSelf: 'flex-start',
+    maxWidth: '100%',
   },
   badgeText: {
     fontSize: 11,
     fontWeight: '800',
     color: withuColors.success,
+    flexShrink: 1,
   },
   activeBox: {
     backgroundColor: withuColors.teal,

@@ -655,7 +655,7 @@ export default function ProfileScreen() {
 
         <View style={styles.card}>
           <View style={styles.sectionHeader}>
-            <View>
+            <View style={styles.sectionHeaderText}>
               <Text style={styles.sectionLabel}>DET HÄR SÖKER JAG</Text>
               <Text style={styles.sectionTitle}>Behov och kontakt</Text>
             </View>
@@ -696,7 +696,7 @@ export default function ProfileScreen() {
 
         <View style={styles.card}>
           <View style={styles.sectionHeader}>
-            <View>
+            <View style={styles.sectionHeaderText}>
               <Text style={styles.sectionLabel}>SÄTT ATT MÖTAS</Text>
               <Text style={styles.sectionTitle}>Det här kan jag tänka mig</Text>
             </View>
@@ -719,7 +719,7 @@ export default function ProfileScreen() {
 
         <View style={styles.card}>
           <View style={styles.sectionHeader}>
-            <View>
+            <View style={styles.sectionHeaderText}>
               <Text style={styles.sectionLabel}>TRYGGA KONTAKTER</Text>
               <Text style={styles.sectionTitle}>Personer du valt att prata med</Text>
             </View>
@@ -959,7 +959,7 @@ export default function ProfileScreen() {
 
         <View style={styles.card}>
           <View style={styles.sectionHeader}>
-            <View>
+            <View style={styles.sectionHeaderText}>
               <Text style={styles.sectionLabel}>SÄTT ATT MÖTAS</Text>
               <Text style={styles.sectionTitle}>Vad känns tryggt för dig?</Text>
             </View>
@@ -1122,7 +1122,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 16,
-    paddingTop: 18,
+    paddingTop: Platform.OS === 'ios' ? 42 : 24,
     paddingBottom: 42,
   },
   loadingWrap: {
@@ -1338,8 +1338,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
-    gap: 12,
+    gap: 10,
     marginBottom: 8,
+  },
+  sectionHeaderText: {
+    flex: 1,
+    minWidth: 0,
   },
   sectionLabel: {
     color: '#7A8499',
@@ -1350,15 +1354,16 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     color: '#0F1E38',
-    fontSize: 21,
+    fontSize: 20,
     fontWeight: '900',
-    lineHeight: 27,
+    lineHeight: 26,
     marginBottom: 8,
   },
   sectionAction: {
     color: '#E05C4B',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '900',
+    flexShrink: 0,
   },
   bodyText: {
     color: '#34405A',
