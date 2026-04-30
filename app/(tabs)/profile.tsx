@@ -592,7 +592,7 @@ export default function ProfileScreen() {
           </TouchableOpacity>
 
           <View style={styles.heroText}>
-            <Text style={styles.eyebrow}>MIN PROFIL</Text>
+            <Text style={styles.eyebrow}>TRYGGT KONTAKTKORT</Text>
             <Text style={styles.profileName}>{publicName}</Text>
             <Text style={styles.profileMeta}>
               {[age ? `${age} år` : null, publicPlace].filter(Boolean).join(' · ')}
@@ -624,10 +624,10 @@ export default function ProfileScreen() {
 
           <View style={styles.heroActions}>
             <TouchableOpacity style={styles.primaryButton} onPress={() => setIsEditing(true)}>
-              <Text style={styles.primaryButtonText}>Redigera profil</Text>
+              <Text style={styles.primaryButtonText}>Ändra min info</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.secondaryButton} onPress={() => router.push('/volunteers')}>
-              <Text style={styles.secondaryButtonText}>Volontärprogram</Text>
+              <Text style={styles.secondaryButtonText}>Volontärstöd</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -635,7 +635,7 @@ export default function ProfileScreen() {
         <View style={styles.statsRow}>
           <View style={styles.statCard}>
             <Text style={styles.statValue}>{friends.length}</Text>
-            <Text style={styles.statLabel}>Vänner</Text>
+            <Text style={styles.statLabel}>Trygga kontakter</Text>
           </View>
           <View style={styles.statCard}>
             <Text style={styles.statValue}>{selectedActivities.length}</Text>
@@ -652,23 +652,23 @@ export default function ProfileScreen() {
         <View style={styles.card}>
           <View style={styles.sectionHeader}>
             <View>
-              <Text style={styles.sectionLabel}>OM MIG</Text>
-              <Text style={styles.sectionTitle}>Så ser andra dig</Text>
+              <Text style={styles.sectionLabel}>DET HÄR SÖKER JAG</Text>
+              <Text style={styles.sectionTitle}>Behov och kontakt</Text>
             </View>
             <Pressable onPress={() => setIsEditing(true)}>
               <Text style={styles.sectionAction}>Ändra</Text>
             </Pressable>
           </View>
           <Text style={styles.bodyText}>
-            {bio || 'Skriv några rader om dig själv. Det gör det lättare för andra att våga säga hej.'}
+            {bio || 'Skriv kort vad du söker just nu. Det gör det lättare för rätt person att våga säga hej.'}
           </Text>
         </View>
 
         <View style={styles.card}>
           <View style={styles.sectionHeader}>
             <View>
-              <Text style={styles.sectionLabel}>AKTIVITETER</Text>
-              <Text style={styles.sectionTitle}>Det du vill göra</Text>
+              <Text style={styles.sectionLabel}>SÄTT ATT MÖTAS</Text>
+              <Text style={styles.sectionTitle}>Det här kan jag tänka mig</Text>
             </View>
             <Pressable onPress={() => setIsEditing(true)}>
               <Text style={styles.sectionAction}>Välj</Text>
@@ -690,8 +690,8 @@ export default function ProfileScreen() {
         <View style={styles.card}>
           <View style={styles.sectionHeader}>
             <View>
-              <Text style={styles.sectionLabel}>VÄNNER</Text>
-              <Text style={styles.sectionTitle}>Personer du matchat med</Text>
+              <Text style={styles.sectionLabel}>TRYGGA KONTAKTER</Text>
+              <Text style={styles.sectionTitle}>Personer du valt att prata med</Text>
             </View>
             <Pressable onPress={() => setActiveTab('friends')}>
               <Text style={styles.sectionAction}>Se alla</Text>
@@ -712,13 +712,13 @@ export default function ProfileScreen() {
                     size={56}
                   />
                   <Text numberOfLines={1} style={styles.friendMiniName}>
-                    {friend.name || 'Vän'}
+                    {friend.name || 'Kontakt'}
                   </Text>
                 </Pressable>
               ))}
             </ScrollView>
           ) : (
-            <Text style={styles.mutedText}>När du matchar med någon syns personen här.</Text>
+            <Text style={styles.mutedText}>När båda valt kontakt syns personen här.</Text>
           )}
         </View>
       </>
@@ -728,10 +728,10 @@ export default function ProfileScreen() {
   function renderFriendsView() {
     return (
       <View style={styles.card}>
-        <Text style={styles.sectionLabel}>DINA VÄNNER</Text>
-        <Text style={styles.sectionTitle}>Matchningar som kan chatta med dig</Text>
+        <Text style={styles.sectionLabel}>DINA TRYGGA KONTAKTER</Text>
+        <Text style={styles.sectionTitle}>Samtal där båda valt kontakt</Text>
         <Text style={styles.bodyText}>
-          Här samlas personer där båda har valt att prata. Flödet kan sedan visas bara för dessa vänner.
+          Här samlas personer där båda har valt att prata. Gemenskap kan visas bara för dina trygga kontakter.
         </Text>
 
         <View style={styles.friendList}>
@@ -749,7 +749,7 @@ export default function ProfileScreen() {
                 />
                 <View style={styles.friendInfo}>
                   <Text style={styles.friendName}>
-                    {friend.name || 'Vän'}{friend.age ? `, ${friend.age}` : ''}
+                    {friend.name || 'Kontakt'}{friend.age ? `, ${friend.age}` : ''}
                   </Text>
                   <Text style={styles.friendMeta}>{friend.city || 'Ingen stad'} · {friend.activities?.[0] || 'Prata'}</Text>
                 </View>
@@ -759,10 +759,10 @@ export default function ProfileScreen() {
           ) : (
             <View style={styles.emptyState}>
               <Text style={styles.emptyIcon}>💙</Text>
-              <Text style={styles.emptyTitle}>Inga vänner ännu</Text>
-              <Text style={styles.emptyText}>Gå till Upptäck och tryck “Vill prata” på personer du vill lära känna.</Text>
+              <Text style={styles.emptyTitle}>Inga trygga kontakter ännu</Text>
+              <Text style={styles.emptyText}>Gå till Hitta och tryck “Vill prata” på personer du vill lära känna.</Text>
               <TouchableOpacity style={styles.primaryButton} onPress={() => router.push('/')}>
-                <Text style={styles.primaryButtonText}>Öppna Upptäck</Text>
+                <Text style={styles.primaryButtonText}>Öppna Hitta</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -783,8 +783,8 @@ export default function ProfileScreen() {
             <Pressable style={styles.settingRow} onPress={() => setIsEditing(true)}>
               <Ionicons name="person-outline" size={22} color="#1C5E52" />
               <View style={styles.settingTextWrap}>
-                <Text style={styles.settingTitle}>Redigera profil</Text>
-                <Text style={styles.settingSub}>Namn, stad, bio, profilbild och aktiviteter</Text>
+                <Text style={styles.settingTitle}>Ändra min info</Text>
+                <Text style={styles.settingSub}>Namn, stad, behov, profilbild och aktiviteter</Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color="#9AA4B8" />
             </Pressable>
@@ -792,7 +792,7 @@ export default function ProfileScreen() {
             <Pressable style={styles.settingRow} onPress={() => router.push('/volunteers')}>
               <Ionicons name="heart-outline" size={22} color="#E05C4B" />
               <View style={styles.settingTextWrap}>
-                <Text style={styles.settingTitle}>Volontärprogram</Text>
+                <Text style={styles.settingTitle}>Volontärstöd</Text>
                 <Text style={styles.settingSub}>Ansök, visa status eller hitta stödpersoner</Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color="#9AA4B8" />
@@ -824,7 +824,7 @@ export default function ProfileScreen() {
           <Text style={styles.sectionLabel}>TRYGGHET</Text>
           <Text style={styles.sectionTitle}>Synlighet och konto</Text>
           <Text style={styles.bodyText}>
-            Din exakta plats visas inte i profilen. Personer ser stad, aktiviteter och profilbild om du själv lägger upp en.
+            Din exakta plats visas aldrig. Personer ser bara stad, behov, aktiviteter och profilbild om du själv lägger upp en.
           </Text>
           <View style={styles.trustBox}>
             <Text style={styles.trustTitle}>Kontostatus: {verificationLevel}</Text>
@@ -870,7 +870,7 @@ export default function ProfileScreen() {
           <Pressable style={styles.roundIconButton} onPress={() => setIsEditing(false)}>
             <Ionicons name="close" size={24} color="#20325E" />
           </Pressable>
-          <Text style={styles.editTitle}>Redigera profil</Text>
+          <Text style={styles.editTitle}>Ändra min info</Text>
           <Pressable style={styles.savePill} onPress={saveProfile} disabled={saving}>
             {saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.savePillText}>Spara</Text>}
           </Pressable>
@@ -899,11 +899,11 @@ export default function ProfileScreen() {
           />
           <Text style={styles.inputHint}>WithU är 18+ just nu. Du väljer själv vilka åldrar du vill matcha och kontakta nedan.</Text>
 
-          <Text style={styles.fieldLabel}>Om mig</Text>
+          <Text style={styles.fieldLabel}>Det här söker jag</Text>
           <TextInput
             value={bio}
             onChangeText={setBio}
-            placeholder="Skriv kort om dig själv"
+            placeholder="Skriv kort vad du söker eller kan ge"
             placeholderTextColor="#9AA6C1"
             multiline
             textAlignVertical="top"
@@ -914,7 +914,7 @@ export default function ProfileScreen() {
         <View style={styles.card}>
           <Text style={styles.sectionLabel}>MATCHNING</Text>
           <Text style={styles.sectionTitle}>Vilka åldrar vill du matcha med?</Text>
-          <Text style={styles.inputHint}>Personer utanför detta spann visas inte i Upptäck/Hitta.</Text>
+          <Text style={styles.inputHint}>Personer utanför detta spann visas inte i Hitta.</Text>
           <View style={styles.ageRow}>
             <View style={styles.ageCol}>
               <Text style={styles.fieldLabel}>Från</Text>
@@ -930,8 +930,8 @@ export default function ProfileScreen() {
         <View style={styles.card}>
           <View style={styles.sectionHeader}>
             <View>
-              <Text style={styles.sectionLabel}>AKTIVITETER</Text>
-              <Text style={styles.sectionTitle}>Vad vill du göra?</Text>
+              <Text style={styles.sectionLabel}>SÄTT ATT MÖTAS</Text>
+              <Text style={styles.sectionTitle}>Vad känns tryggt för dig?</Text>
             </View>
             <View style={styles.counterBadge}>
               <Text style={styles.counterBadgeText}>{selectedActivities.length}/{MAX_ACTIVITIES}</Text>
@@ -966,7 +966,7 @@ export default function ProfileScreen() {
     return (
       <View style={styles.loadingWrap}>
         <ActivityIndicator size="large" color="#1C5E52" />
-        <Text style={styles.loadingText}>Laddar profil...</Text>
+        <Text style={styles.loadingText}>Laddar din sida...</Text>
       </View>
     );
   }
@@ -985,16 +985,16 @@ export default function ProfileScreen() {
           keyboardDismissMode="interactive"
         >
           <View style={styles.pageHeader}>
-            <Text style={styles.pageTitle}>Profil</Text>
-            <Text style={styles.pageSubtitle}>Din plats, dina vänner och hur andra ser dig.</Text>
+            <Text style={styles.pageTitle}>Jag</Text>
+            <Text style={styles.pageSubtitle}>Din trygghet, dina kontakter och hur andra kan möta dig.</Text>
           </View>
 
           {!isEditing ? (
             <View style={styles.tabs}>
               {[
-                { key: 'profile' as const, label: 'Profil', icon: 'person-outline' as const },
-                { key: 'friends' as const, label: 'Vänner', icon: 'people-outline' as const },
-                { key: 'settings' as const, label: 'Inställningar', icon: 'settings-outline' as const },
+                { key: 'profile' as const, label: 'Jag', icon: 'person-outline' as const },
+                { key: 'friends' as const, label: 'Trygga kontakter', icon: 'people-outline' as const },
+                { key: 'settings' as const, label: 'Trygghet', icon: 'settings-outline' as const },
               ].map((tab) => {
                 const active = activeTab === tab.key;
                 return (

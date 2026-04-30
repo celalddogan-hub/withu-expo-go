@@ -260,7 +260,7 @@ export default function NowScreen() {
       if (error) throw error;
       await loadNow();
     } catch (error: any) {
-      Alert.alert('Kunde inte gå live', error?.message || 'Försök igen.');
+      Alert.alert('Kunde inte visa tillgänglighet', error?.message || 'Försök igen.');
     } finally {
       setSaving(false);
     }
@@ -315,7 +315,7 @@ export default function NowScreen() {
 
   return (
     <WithUScreen>
-      <WithUTopBar title="Nu" subtitle="Hitta någon som är aktiv just nu." right={<WithUAvatar emoji="⚡" size={34} />} />
+      <WithUTopBar title="Ses nu" subtitle="Hitta någon som vill prata eller ses en stund." right={<WithUAvatar emoji="⚡" size={34} />} />
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -333,8 +333,8 @@ export default function NowScreen() {
           <View style={styles.liveCard}>
             <View style={styles.liveHeader}>
               <View>
-                <Text style={styles.sectionLabel}>Din status</Text>
-                <Text style={styles.liveTitle}>{myNow ? 'Du är live nu' : 'Gå live i 60 min'}</Text>
+                <Text style={styles.sectionLabel}>Din tillgänglighet</Text>
+                <Text style={styles.liveTitle}>{myNow ? 'Du är tillgänglig nu' : 'Jag är tillgänglig i 60 min'}</Text>
               </View>
               {myNow ? <Text style={styles.livePill}>{getMinutesLeft(myNow.expires_at)} min</Text> : null}
             </View>
@@ -368,7 +368,7 @@ export default function NowScreen() {
 
             <View style={styles.liveActions}>
               <Pressable style={[styles.primaryButton, saving && styles.disabled]} onPress={goLive} disabled={saving}>
-                <Text style={styles.primaryButtonText}>{saving ? 'Sparar...' : myNow ? 'Uppdatera' : 'Gå live'}</Text>
+                <Text style={styles.primaryButtonText}>{saving ? 'Sparar...' : myNow ? 'Uppdatera' : 'Jag är tillgänglig nu'}</Text>
               </Pressable>
               {myNow ? (
                 <Pressable style={styles.secondaryButton} onPress={stopLive} disabled={saving}>
@@ -379,19 +379,19 @@ export default function NowScreen() {
           </View>
 
           <View style={styles.feedHeader}>
-            <Text style={styles.feedTitle}>Live just nu</Text>
-            <Text style={styles.feedCount}>{liveCards.length} aktiva</Text>
+            <Text style={styles.feedTitle}>Tillgängliga just nu</Text>
+            <Text style={styles.feedCount}>{liveCards.length} tillgängliga</Text>
           </View>
 
           {loading ? (
             <View style={styles.stateCard}>
               <ActivityIndicator color={withuColors.teal} size="large" />
-              <Text style={styles.stateText}>Laddar live-personer...</Text>
+              <Text style={styles.stateText}>Laddar tillgängliga personer...</Text>
             </View>
           ) : liveCards.length === 0 ? (
             <View style={styles.stateCard}>
-              <Text style={styles.stateTitle}>Ingen är live just nu</Text>
-              <Text style={styles.stateText}>Gå live själv eller titta igen om en stund.</Text>
+              <Text style={styles.stateTitle}>Ingen är tillgänglig just nu</Text>
+              <Text style={styles.stateText}>Bli först att visa att du vill prata, eller titta igen om en stund.</Text>
             </View>
           ) : (
             <View style={styles.cardList}>

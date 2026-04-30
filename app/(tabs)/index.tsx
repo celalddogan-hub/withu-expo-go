@@ -73,10 +73,37 @@ type AdminRow = {
 };
 
 const DISCOVER_ACTIONS = [
-  { emoji: '⚡', title: 'Aktiva nu', sub: 'folk som vill ses', route: '/now' },
-  { emoji: '📍', title: 'Nära dig', sub: 'karta och avstånd', route: '/nearby' },
-  { emoji: '💙', title: 'Matcher', sub: 'öppna samtal', route: '/matches' },
-  { emoji: '🤝', title: 'Volontär', sub: 'tryggt stöd', route: '/volunteers' },
+  { emoji: '⚡', title: 'Ses nu', sub: 'tillgängliga personer', route: '/now' },
+  { emoji: '📍', title: 'Karta', sub: 'bara ungefärligt område', route: '/nearby' },
+  { emoji: '💙', title: 'Personer för dig', sub: 'trygga samtal', route: '/matches' },
+  { emoji: '🤝', title: 'Volontärstöd', sub: 'prata med stödperson', route: '/volunteers' },
+];
+
+const NEED_OPTIONS = [
+  {
+    icon: 'chatbubble-ellipses-outline' as const,
+    title: 'Jag vill prata',
+    sub: 'Hitta någon som kan lyssna en stund.',
+    onPress: 'prata',
+  },
+  {
+    icon: 'cafe-outline' as const,
+    title: 'Jag vill träffa någon',
+    sub: 'Fika, promenad eller annan trygg aktivitet.',
+    onPress: 'ses',
+  },
+  {
+    icon: 'heart-outline' as const,
+    title: 'Jag känner mig ensam',
+    sub: 'Du behöver inte bära det själv.',
+    onPress: 'ensam',
+  },
+  {
+    icon: 'hand-left-outline' as const,
+    title: 'Jag vill stötta någon',
+    sub: 'Finns till för någon som behöver sällskap.',
+    onPress: 'stod',
+  },
 ];
 
 const FILTERS: { key: FilterKey; label: string }[] = [
@@ -188,7 +215,6 @@ export default function HittaScreen() {
   const router = useRouter();
 
   const [currentUserId, setCurrentUserId] = useState('');
-  const [userName, setUserName] = useState('');
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [contactedIds, setContactedIds] = useState<string[]>([]);
   const [matchedIds, setMatchedIds] = useState<string[]>([]);
@@ -269,7 +295,6 @@ export default function HittaScreen() {
       const ownMinAge = ownProfile.data?.min_age ?? 18;
       const ownMaxAge = ownProfile.data?.max_age ?? 99;
 
-      setUserName(ownProfile.data?.name || '');
       setVolunteerCount(volunteerCountResult.count ?? 0);
 
       const outgoing = (outgoingMatches.data ?? []) as MatchRow[];
@@ -418,7 +443,7 @@ export default function HittaScreen() {
     <WithUScreen>
       <WithUTopBar
         title="WithU"
-        subtitle="Hitta personer att prata med."
+        subtitle="Du är aldrig ensam."
         right={<WithUAvatar emoji="😊" size={34} />}
       />
 
@@ -433,19 +458,43 @@ export default function HittaScreen() {
             <View style={styles.heroTopRow}>
               <View style={styles.livePill}>
                 <View style={styles.liveDot} />
-                <Text style={styles.liveText}>Live nära dig</Text>
+                <Text style={styles.liveText}>Behov först</Text>
               </View>
-              <Text style={styles.heroCount}>{visibleProfiles.length} nya</Text>
+              <Text style={styles.heroCount}>Inte efter utseende</Text>
             </View>
-            <Text style={styles.heroTitle}>
-              {userName ? `Hej ${userName.split(' ')[0]}` : 'Hej'} - hitta någon att prata med
-            </Text>
+            <Text style={styles.heroTitle}>Vad behöver du just nu?</Text>
             <Text style={styles.heroText}>
-              Välj aktivitet, skicka en fråga och gå vidare. Personen försvinner från Upptäck när du tryckt.
+              Välj ett behov, så hjälper WithU dig hitta rätt kontakt tryggt och enkelt.
             </Text>
+            <View style={styles.needGrid}>
+              {NEED_OPTIONS.map((need) => (
+                <Pressable
+                  key={need.title}
+                  accessibilityRole="button"
+                  accessibilityLabel={need.title}
+                  style={styles.needCard}
+                  onPress={() => {
+                    if (need.onPress === 'prata') setFilter('prata');
+                    if (need.onPress === 'ses') router.push('/now' as any);
+                    if (need.onPress === 'ensam') router.push('/volunteers' as any);
+                    if (need.onPress === 'stod') router.push('/volunteers/apply' as any);
+                  }}
+                >
+                  <Ionicons name={need.icon} size={22} color={withuColors.teal} />
+                  <Text style={styles.needTitle}>{need.title}</Text>
+                  <Text style={styles.needSub}>{need.sub}</Text>
+                </Pressable>
+              ))}
+            </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.actionRail}>
               {DISCOVER_ACTIONS.map((action) => (
-                <Pressable key={action.title} style={styles.actionCard} onPress={() => router.push(action.route as any)}>
+                <Pressable
+                  key={action.title}
+                  accessibilityRole="button"
+                  accessibilityLabel={action.title}
+                  style={styles.actionCard}
+                  onPress={() => router.push(action.route as any)}
+                >
                   <Text style={styles.actionEmoji}>{action.emoji}</Text>
                   <Text style={styles.actionTitle}>{action.title}</Text>
                   <Text style={styles.actionSub}>{action.sub}</Text>
@@ -457,11 +506,11 @@ export default function HittaScreen() {
           <Pressable style={styles.volunteerCard} onPress={() => router.push('/volunteers')}>
             <Text style={styles.volunteerIcon}>🤝</Text>
             <View style={styles.volunteerTextWrap}>
-              <Text style={styles.volunteerTitle}>Volontärer nära dig</Text>
+              <Text style={styles.volunteerTitle}>Volontärstöd</Text>
               <Text style={styles.volunteerText}>
                 {volunteerCount > 0
-                  ? `${volunteerCount} volontärer är aktiva just nu.`
-                  : 'Öppna volontärprogrammet och se stödpersoner.'}
+                  ? `${volunteerCount} stödpersoner är tillgängliga just nu.`
+                  : 'Prata med en stödperson eller ansök om att hjälpa andra.'}
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color={withuColors.navy} />
@@ -472,7 +521,7 @@ export default function HittaScreen() {
             <TextInput
               value={query}
               onChangeText={setQuery}
-              placeholder="Sök aktivitet, stad eller person"
+              placeholder="Sök behov, aktivitet eller stad"
               placeholderTextColor={withuColors.muted}
               style={styles.searchInput}
               autoCapitalize="none"
@@ -513,14 +562,14 @@ export default function HittaScreen() {
             </View>
           ) : visibleProfiles.length === 0 ? (
             <View style={styles.centerCard}>
-              <Text style={styles.emptyTitle}>Inga nya personer just nu</Text>
+              <Text style={styles.emptyTitle}>Ingen passande kontakt just nu</Text>
               <Text style={styles.centerText}>
-                Byt filter, sök på något annat eller kom tillbaka senare.
+                Byt behov, se volontärstöd eller kom tillbaka om en stund.
               </Text>
             </View>
           ) : (
             <View style={styles.profileList}>
-              <Text style={styles.sectionLabel}>Personer som matchar dina val</Text>
+              <Text style={styles.sectionLabel}>Trygga kontakter för ditt behov</Text>
               {visibleProfiles.map((profile) => {
                 const avatar = getAvatarEmoji(profile);
                 const city = profile.city || 'Plats saknas';
@@ -533,7 +582,7 @@ export default function HittaScreen() {
                         <View style={styles.activeNowDot} />
                         <Text style={styles.activeNowText}>Aktiv idag</Text>
                       </View>
-                      <Text style={styles.cardHint}>Trygg kontakt först</Text>
+                        <Text style={styles.cardHint}>Frivilligt och tryggt</Text>
                     </View>
 
                     <View style={styles.profileTop}>
@@ -587,7 +636,7 @@ export default function HittaScreen() {
                         onPress={() => router.push(`/user/${profile.id}`)}
                         disabled={!!sending}
                       >
-                        <Text style={styles.secondaryButtonText}>Profil</Text>
+                      <Text style={styles.secondaryButtonText}>Kontaktkort</Text>
                       </Pressable>
                       <Pressable
                         style={[styles.primaryButton, sending === profile.id && styles.disabled]}
@@ -647,6 +696,22 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     fontWeight: '700',
   },
+  needGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 16,
+  },
+  needCard: {
+    width: '48%',
+    minHeight: 132,
+    borderRadius: withuRadius.lg,
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    padding: 13,
+    justifyContent: 'space-between',
+  },
+  needTitle: { color: withuColors.navy, fontSize: 15, fontWeight: '900', lineHeight: 18, marginTop: 8 },
+  needSub: { color: withuColors.muted, fontSize: 11, fontWeight: '800', lineHeight: 15, marginTop: 5 },
   actionRail: { gap: 10, paddingTop: 16 },
   actionCard: {
     width: 118,

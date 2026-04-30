@@ -65,7 +65,7 @@ const IMAGE_BUCKET = 'post-images';
 const MAX_POST_IMAGES = 4;
 
 const FILTERS: { key: FeedType; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-  { key: 'all', label: 'Vänner', icon: 'people-outline' },
+  { key: 'all', label: 'Trygga kontakter', icon: 'people-outline' },
   { key: 'activity', label: 'Aktiviteter', icon: 'cafe-outline' },
   { key: 'thought', label: 'Tankar', icon: 'leaf-outline' },
   { key: 'photo', label: 'Bilder', icon: 'images-outline' },
@@ -82,9 +82,9 @@ const TYPE_META: Record<ComposerType, { label: string; icon: string; color: stri
 };
 
 const VISIBILITY_OPTIONS: { key: Visibility; label: string; sub: string }[] = [
-  { key: 'friends', label: 'Vänner', sub: 'Bara dina vänner' },
-  { key: 'matches', label: 'Matcher', sub: 'Personer du matchat med' },
-  { key: 'nearby', label: 'Nära', sub: 'Aktiva nära dig' },
+  { key: 'friends', label: 'Trygga kontakter', sub: 'Bara personer du valt' },
+  { key: 'matches', label: 'Personer för dig', sub: 'Personer du matchat med' },
+  { key: 'nearby', label: 'Ses nu', sub: 'Tillgängliga nära dig' },
 ];
 
 const URL_PATTERN = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
@@ -403,7 +403,7 @@ export default function FeedScreen() {
         image_path: imagePaths[0] ?? null,
         image_paths: imagePaths,
         image_status: imagePaths.length ? 'approved' : 'none',
-        area: visibility === 'nearby' ? 'Nära dig' : visibility === 'matches' ? 'Matcher' : 'Vänner',
+        area: visibility === 'nearby' ? 'Ses nu' : visibility === 'matches' ? 'Personer för dig' : 'Trygga kontakter',
       });
 
       if (error) throw error;
@@ -753,15 +753,15 @@ export default function FeedScreen() {
         <View style={styles.postFooter}>
           <Pressable style={[styles.footerButton, item.liked_by_me && styles.footerButtonActive]} onPress={() => toggleLike(item)}>
             <Ionicons name={item.liked_by_me ? 'heart' : 'heart-outline'} size={22} color={item.liked_by_me ? '#E05C4B' : '#5C6780'} />
-            <Text style={[styles.footerText, item.liked_by_me && styles.footerTextActive]}>Gilla {item.like_count ?? 0}</Text>
+            <Text style={[styles.footerText, item.liked_by_me && styles.footerTextActive]}>Känner igen</Text>
           </Pressable>
           <Pressable style={styles.footerButton} onPress={() => setCommentPost(item)}>
             <Ionicons name="chatbubble-ellipses-outline" size={21} color="#5C6780" />
-            <Text style={styles.footerText}>Svara {item.comment_count ?? 0}</Text>
+            <Text style={styles.footerText}>Vill prata</Text>
           </Pressable>
           <Pressable style={[styles.footerButton, item.joined_by_me && styles.footerJoinActive]} onPress={() => toggleJoin(item)}>
             <Ionicons name={item.joined_by_me ? 'hand-left' : 'hand-left-outline'} size={21} color={item.joined_by_me ? '#1C5E52' : '#5C6780'} />
-            <Text style={[styles.footerText, item.joined_by_me && styles.footerJoinText]}>Jag med {item.participant_count ?? 0}</Text>
+            <Text style={[styles.footerText, item.joined_by_me && styles.footerJoinText]}>Kan ses</Text>
           </Pressable>
           <Pressable style={[styles.footerButton, styles.profileFooterButton]} onPress={() => openProfile(item.user_id)}>
             <Ionicons name="person-circle-outline" size={22} color="#5C6780" />
@@ -774,7 +774,7 @@ export default function FeedScreen() {
   if (loading) {
     return (
       <WithUScreen>
-        <WithUTopBar title="Flödet" subtitle="Vänner, bilder och aktiviteter." />
+        <WithUTopBar title="Gemenskap" subtitle="Trygga kontakter och stöd." />
         <View style={styles.centerState}>
           <ActivityIndicator size="large" color="#1C5E52" />
           <Text style={styles.centerTitle}>Laddar flödet...</Text>
@@ -785,7 +785,7 @@ export default function FeedScreen() {
 
   return (
     <WithUScreen>
-      <WithUTopBar title="Flödet" subtitle="Bara dina vänner, matcher och trygga träffar." />
+      <WithUTopBar title="Gemenskap" subtitle="Inlägg från trygga kontakter och personer du valt att prata med." />
       <FlatList
         data={filteredPosts}
         keyExtractor={(item) => item.id}
@@ -796,10 +796,10 @@ export default function FeedScreen() {
         ListHeaderComponent={
           <View>
             <View style={styles.hero}>
-              <Text style={styles.heroBadge}>VÄNNER & MATCHER</Text>
+              <Text style={styles.heroBadge}>BEHOV FÖRST</Text>
               <Text style={styles.heroTitle}>Dela något som leder till kontakt</Text>
               <Text style={styles.heroText}>
-                Bilder, aktiviteter, frågor och träffar visas för dina trygga kontakter.
+                Bild, aktivitet, fråga eller tanke - bara för dina trygga kontakter.
               </Text>
             </View>
 
@@ -808,8 +808,8 @@ export default function FeedScreen() {
                 if (await ensureTrustAllowed('feed_post')) setComposerOpen(true);
               }}>
                 <Text style={styles.nowEmoji}>＋</Text>
-                <Text style={[styles.nowTitle, styles.nowTitleLight]}>Lägg upp</Text>
-                <Text style={[styles.nowSub, styles.nowSubLight]}>bild eller aktivitet</Text>
+                <Text style={[styles.nowTitle, styles.nowTitleLight]}>Dela något</Text>
+                <Text style={[styles.nowSub, styles.nowSubLight]}>som leder till kontakt</Text>
               </Pressable>
               <Pressable style={styles.nowCard} onPress={() => setActiveFilter('activity')}>
                 <Text style={styles.nowEmoji}>☕</Text>
@@ -824,7 +824,7 @@ export default function FeedScreen() {
               <Pressable style={styles.nowCard} onPress={() => setActiveFilter('photo')}>
                 <Text style={styles.nowEmoji}>📷</Text>
                 <Text style={styles.nowTitle}>Bilder</Text>
-                <Text style={styles.nowSub}>från vänner</Text>
+                <Text style={styles.nowSub}>från trygga kontakter</Text>
               </Pressable>
             </ScrollView>
 
@@ -833,8 +833,8 @@ export default function FeedScreen() {
             }}>
               <WithUAvatar emoji="🙂" size={44} />
               <View style={styles.composerTextWrap}>
-                <Text style={styles.composerTitle}>Lägg upp för dina vänner</Text>
-                <Text style={styles.composerSub}>Bild, aktivitet, fråga eller träff</Text>
+                <Text style={styles.composerTitle}>Dela för dina trygga kontakter</Text>
+                <Text style={styles.composerSub}>Bild, aktivitet, fråga eller tanke</Text>
               </View>
               <View style={styles.composerPlus}>
                 <Ionicons name="add" size={26} color="#FFFFFF" />
@@ -888,8 +888,8 @@ export default function FeedScreen() {
         ListEmptyComponent={
           !setupRequired && !errorText ? (
             <View style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>Inget i flödet ännu</Text>
-              <Text style={styles.emptyText}>Lägg upp en bild eller aktivitet så känns appen mer levande.</Text>
+              <Text style={styles.emptyTitle}>Inget i gemenskapen ännu</Text>
+              <Text style={styles.emptyText}>Dela något enkelt som kan leda till kontakt.</Text>
             </View>
           ) : null
         }

@@ -143,7 +143,7 @@ function getAvatarEmoji(activity?: string, fallback?: string | null) {
 }
 
 function getMessagePreview(message: MessageRow | null, currentUserId: string) {
-  if (!message) return 'Ny match — starta chatten';
+  if (!message) return 'Ny kontakt - starta samtalet';
 
   const isMine = message.sender_id === currentUserId;
 
@@ -334,7 +334,7 @@ export default function ChatListScreen() {
       if (!user) {
         setCurrentUserId('');
         setItems([]);
-        setErrorText('Du måste logga in för att se dina chattar.');
+        setErrorText('Du måste logga in för att se dina samtal.');
         return;
       }
 
@@ -506,7 +506,7 @@ export default function ChatListScreen() {
       setItems((prev) => (shallowSameItems(prev, builtItems) ? prev : builtItems));
     } catch (error: any) {
       setItems([]);
-      setErrorText(error?.message || 'Kunde inte ladda chattar.');
+      setErrorText(error?.message || 'Kunde inte ladda samtal.');
     }
   }, []);
 
@@ -535,9 +535,9 @@ export default function ChatListScreen() {
   }, [items]);
 
   const subtitleText = useMemo(() => {
-    if (items.length === 0) return 'Inga konversationer ännu';
+    if (items.length === 0) return 'Inga samtal ännu';
     if (unreadTotal > 0) return `${unreadTotal} olästa meddelanden`;
-    return `${items.length} aktiva konversationer`;
+    return `${items.length} pågående samtal`;
   }, [items.length, unreadTotal]);
 
   const openConversation = useCallback(
@@ -573,8 +573,8 @@ export default function ChatListScreen() {
         <WithUPage style={styles.pageOnly}>
           <View style={styles.stateCard}>
             <ActivityIndicator size="large" color={withuColors.coral} />
-            <Text style={styles.stateTitle}>Laddar chattar...</Text>
-            <Text style={styles.stateText}>Vi hämtar dina konversationer.</Text>
+            <Text style={styles.stateTitle}>Laddar samtal...</Text>
+            <Text style={styles.stateText}>Vi hämtar dina trygga kontakter.</Text>
           </View>
         </WithUPage>
       </WithUScreen>
@@ -602,7 +602,7 @@ export default function ChatListScreen() {
         ListHeaderComponent={
           <WithUPage style={styles.page}>
             <View style={styles.heroBlock}>
-              <Text style={styles.heroTitle}>Chatt</Text>
+              <Text style={styles.heroTitle}>Samtal</Text>
               <Text style={styles.heroSubtitle}>{subtitleText}</Text>
             </View>
 
@@ -619,9 +619,9 @@ export default function ChatListScreen() {
             <Pressable style={styles.matchesShortcut} onPress={() => router.push('/matches')}>
               <Text style={styles.matchesShortcutEmoji}>💙</Text>
               <View style={styles.matchesShortcutTextWrap}>
-                <Text style={styles.matchesShortcutTitle}>Matcher</Text>
+                <Text style={styles.matchesShortcutTitle}>Personer för dig</Text>
                 <Text style={styles.matchesShortcutText}>
-                  Se personer som du kan börja prata med.
+                  Personer som matchar det du behöver just nu.
                 </Text>
               </View>
               <Text style={styles.matchesShortcutArrow}>›</Text>
@@ -644,9 +644,9 @@ export default function ChatListScreen() {
           !errorText ? (
             <WithUPage>
               <View style={styles.emptyCard}>
-                <Text style={styles.emptyTitle}>Inga chattar ännu</Text>
+                <Text style={styles.emptyTitle}>Du har inga samtal än</Text>
                 <Text style={styles.emptyText}>
-                  När du får en match och börjar skriva dyker konversationen upp här.
+                  Välj vad du behöver, så hjälper WithU dig hitta någon att prata med.
                 </Text>
               </View>
             </WithUPage>

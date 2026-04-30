@@ -42,7 +42,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Upptäck',
+          title: 'Hitta',
           tabBarIcon: ({ color, focused }) => (
             <TabIcon active="compass" inactive="compass-outline" color={color} focused={focused} />
           ),
@@ -52,7 +52,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="now"
         options={{
-          title: 'Nära',
+          title: 'Ses nu',
           tabBarIcon: ({ color, focused }) => (
             <TabIcon active="location" inactive="location-outline" color={color} focused={focused} />
           ),
@@ -62,7 +62,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="feed"
         options={{
-          title: 'Flöde',
+          title: 'Gemenskap',
           tabBarIcon: ({ color, focused }) => (
             <TabIcon active="newspaper" inactive="newspaper-outline" color={color} focused={focused} />
           ),
@@ -79,7 +79,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="chat"
         options={{
-          title: 'Chatt',
+          title: 'Samtal',
           tabBarIcon: ({ color, focused }) => (
             <TabIcon
               active="chatbubble-ellipses"
@@ -108,7 +108,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'Profil',
+          title: 'Jag',
           tabBarIcon: ({ color, focused }) => (
             <TabIcon active="person" inactive="person-outline" color={color} focused={focused} />
           ),
